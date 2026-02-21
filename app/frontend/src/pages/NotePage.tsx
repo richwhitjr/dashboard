@@ -152,7 +152,7 @@ export function NotePage() {
         }
       }, 100);
     }
-  }, [searchParams, notes, statusFilter]);
+  }, [searchParams, notes, statusFilter, setSearchParams]);
 
   // Auto-focus input when arriving via search (focus=1 param)
   useEffect(() => {
@@ -160,6 +160,7 @@ export function NotePage() {
       setSearchParams({}, { replace: true });
       setTimeout(() => mention.inputRef.current?.focus(), 100);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const detected = employees ? detectEmployees(text, employees) : { employees: [], isOneOnOne: false };
@@ -174,6 +175,7 @@ export function NotePage() {
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mention.isOpen, mention.dismiss]);
 
   const handleTextChange = (value: string) => {

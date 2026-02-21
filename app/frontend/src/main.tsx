@@ -28,6 +28,7 @@ window.addEventListener('error', (event) => {
 });
 
 // In pywebview (native app), intercept <a target="_blank"> clicks and open via system browser
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 if ((window as any).pywebview) {
   document.addEventListener('click', (e) => {
     const anchor = (e.target as HTMLElement).closest('a');

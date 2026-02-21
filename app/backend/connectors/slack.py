@@ -35,9 +35,19 @@ def _get_client() -> "WebClient":
 
 
 def _get_user_info(client: "WebClient") -> dict:
-    """Get the authenticated user's info."""
+    """Get the authenticated user's info including workspace URL."""
     resp = client.auth_test()
-    return {"user_id": resp["user_id"], "user": resp["user"]}
+    return {"user_id": resp["user_id"], "user": resp["user"], "url": resp.get("url", "")}
+
+
+def _make_permalink(base_url: str, channel_id: str, ts: str) -> str:
+    """Construct a Slack permalink locally without an API call.
+
+    Format: {workspace_url}archives/{channel_id}/p{ts_without_dot}
+    e.g. https://osmo.slack.com/archives/D123456/p1234567890123456
+    """
+    ts_int = ts.replace(".", "")
+    return f"{base_url.rstrip('/')}/archives/{channel_id}/p{ts_int}"
 
 
 def sync_slack_data() -> int:
@@ -47,10 +57,24 @@ def sync_slack_data() -> int:
     client = _get_client()
     user = _get_user_info(client)
     my_user_id = user["user_id"]
+    base_url = user["url"]  # e.g. "https://osmo.slack.com/"
 
     db = get_db()
-    db.execute("DELETE FROM slack_messages")
     count = 0
+
+    # Cache user display names: user_id -> display_name (avoids duplicate users_info calls)
+    user_name_cache: dict[str, str] = {}
+
+    def get_display_name(user_id: str) -> str:
+        if user_id in user_name_cache:
+            return user_name_cache[user_id]
+        try:
+            info = client.users_info(user=user_id)
+            name = info.get("user", {}).get("real_name", user_id)
+        except Exception:
+            name = user_id
+        user_name_cache[user_id] = name
+        return name
 
     # 1. Fetch DMs
     try:
@@ -58,22 +82,12 @@ def sync_slack_data() -> int:
         for ch in dm_channels.get("channels", []):
             try:
                 history = client.conversations_history(channel=ch["id"], limit=10)
-                user_name = ch.get("user", "unknown")
-                # Try to get real name
-                try:
-                    user_info = client.users_info(user=ch.get("user", ""))
-                    user_name = user_info.get("user", {}).get("real_name", user_name)
-                except Exception:
-                    pass
+                other_user_id = ch.get("user", "unknown")
+                user_name = get_display_name(other_user_id)
 
                 for msg in history.get("messages", []):
-                    # Build permalink for DMs
-                    permalink = None
-                    try:
-                        link_resp = client.chat_getPermalink(channel=ch["id"], message_ts=msg["ts"])
-                        permalink = link_resp.get("permalink")
-                    except Exception:
-                        pass
+                    ts = msg["ts"]
+                    permalink = _make_permalink(base_url, ch["id"], ts) if base_url else None
 
                     db.execute(
                         """INSERT OR REPLACE INTO slack_messages
@@ -81,14 +95,14 @@ def sync_slack_data() -> int:
                             text, ts, thread_ts, permalink, is_mention)
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (
-                            f"{ch['id']}_{msg['ts']}",
+                            f"{ch['id']}_{ts}",
                             ch["id"],
                             user_name,
                             "dm",
                             msg.get("user", ""),
                             user_name,
                             msg.get("text", ""),
-                            msg["ts"],
+                            ts,
                             msg.get("thread_ts"),
                             permalink,
                             0,

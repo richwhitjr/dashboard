@@ -25,6 +25,9 @@ import type {
   PrioritizedEmailData,
   EmailThreadDetail,
   RampData,
+  RampBillsResponse,
+  Project,
+  ProjectsResponse,
   PrioritizedNewsData,
   ClaudeSession,
   ClaudeSessionContent,
@@ -208,12 +211,8 @@ export function useDismissDashboardItem() {
 }
 
 export function useSync() {
-  const qc = useQueryClient();
   return useMutation({
     mutationFn: () => api.post('/sync'),
-    onSuccess: () => {
-      setTimeout(() => qc.invalidateQueries(), 2000);
-    },
   });
 }
 
@@ -221,7 +220,7 @@ export function useSyncStatus() {
   return useQuery({
     queryKey: ['sync-status'],
     queryFn: () => api.get<SyncStatus>('/sync/status'),
-    refetchInterval: 3000,
+    refetchInterval: (query) => (query.state.data?.running ? 1000 : 3000),
   });
 }
 
@@ -300,8 +299,13 @@ export function useCreateIssue() {
 export function useUpdateIssue() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...update }: { id: number } & Partial<Issue>) =>
-      api.patch<Issue>(`/issues/${id}`, update),
+    mutationFn: ({
+      id,
+      ...update
+    }: { id: number } & Partial<Issue> & {
+      employee_ids?: string[];
+      meeting_ids?: { ref_type: string; ref_id: string }[];
+    }) => api.patch<Issue>(`/issues/${id}`, update),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['issues'] });
       qc.invalidateQueries({ queryKey: ['employee'] });
@@ -650,22 +654,102 @@ export function useRefreshPrioritizedEmail(days: number = 7) {
   });
 }
 
+export function useSyncRamp() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (orgOnly: boolean) =>
+      api.post(`/sync/ramp?org_only=${orgOnly}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['auth-status'] });
+      qc.invalidateQueries({ queryKey: ['ramp-prioritized'] });
+      qc.invalidateQueries({ queryKey: ['sync-status'] });
+    },
+  });
+}
+
 // --- Prioritized Ramp ---
 
-export function usePrioritizedRamp(days: number = 7) {
+export function usePrioritizedRamp(days: number = 7, orgOnly: boolean = true) {
   return useQuery({
-    queryKey: ['ramp-prioritized', days],
-    queryFn: () => api.get<RampData>(`/ramp/prioritized?days=${days}`),
+    queryKey: ['ramp-prioritized', days, orgOnly],
+    queryFn: () => api.get<RampData>(`/ramp/prioritized?days=${days}&org_only=${orgOnly}`),
     staleTime: 10 * 60 * 1000,
   });
 }
 
-export function useRefreshPrioritizedRamp(days: number = 7) {
+export function useRefreshPrioritizedRamp(days: number = 7, orgOnly: boolean = true) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api.get<RampData>(`/ramp/prioritized?refresh=true&days=${days}`),
+    mutationFn: () => api.get<RampData>(`/ramp/prioritized?refresh=true&days=${days}&org_only=${orgOnly}`),
     onSuccess: (data) => {
-      qc.setQueryData<RampData>(['ramp-prioritized', days], data);
+      qc.setQueryData<RampData>(['ramp-prioritized', days, orgOnly], data);
+    },
+  });
+}
+
+export function useRampBills(filters?: { days?: number; status?: string; project_id?: number; vendor_id?: string }) {
+  const params = new URLSearchParams();
+  if (filters?.days) params.set('days', String(filters.days));
+  if (filters?.status) params.set('status', filters.status);
+  if (filters?.project_id != null) params.set('project_id', String(filters.project_id));
+  if (filters?.vendor_id) params.set('vendor_id', filters.vendor_id);
+  const qs = params.toString();
+  return useQuery({
+    queryKey: ['ramp-bills', filters],
+    queryFn: () => api.get<RampBillsResponse>(`/ramp/bills${qs ? '?' + qs : ''}`),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useAssignBillProject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ billId, projectId }: { billId: string; projectId: number | null }) =>
+      api.patch(`/ramp/bills/${billId}/project`, { project_id: projectId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ramp-bills'] });
+      qc.invalidateQueries({ queryKey: ['projects'] });
+    },
+  });
+}
+
+export function useProjects() {
+  return useQuery({
+    queryKey: ['projects'],
+    queryFn: () => api.get<ProjectsResponse>('/projects'),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useCreateProject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { name: string; description?: string; budget_amount?: number; vendor_id?: string; notes?: string }) =>
+      api.post<Project>('/projects', body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['projects'] });
+    },
+  });
+}
+
+export function useUpdateProject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...update }: { id: number; name?: string; description?: string; budget_amount?: number; status?: string; vendor_id?: string; notes?: string }) =>
+      api.patch<Project>(`/projects/${id}`, update),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['projects'] });
+    },
+  });
+}
+
+export function useDeleteProject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.delete(`/projects/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['projects'] });
+      qc.invalidateQueries({ queryKey: ['ramp-bills'] });
     },
   });
 }
@@ -757,6 +841,17 @@ export function useDeleteClaudeSession() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['claude-sessions'] });
       qc.invalidateQueries({ queryKey: ['claude-session-content'] });
+    },
+  });
+}
+
+export function useCreateNoteFromSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (sessionId: number) => api.post<Note>(`/claude/sessions/${sessionId}/create_note`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['notes'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
   });
 }

@@ -1,5 +1,6 @@
 import json
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from utils.employee_matching import rebuild_from_db
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 
 _sync_running = False
+_sync_current_source: str | None = None
 
 
 def _update_sync_state(source: str, status: str, error: str | None, items: int):
@@ -34,7 +36,6 @@ def sync_meeting_files():
     """Refresh meeting_files table from disk for employees that have a dir_path."""
     db = get_db()
     try:
-        db.execute("DELETE FROM meeting_files")
         rows = db.execute("SELECT id, dir_path FROM employees WHERE dir_path IS NOT NULL AND dir_path != ''").fetchall()
         count = 0
         for row in rows:
@@ -42,10 +43,20 @@ def sync_meeting_files():
             meetings = parse_meeting_files(meetings_dir, row["id"])
             for m in meetings:
                 db.execute(
-                    """INSERT OR REPLACE INTO meeting_files
+                    """INSERT INTO meeting_files
                        (employee_id, filename, filepath, meeting_date, title, summary,
                         action_items_json, granola_link, content_markdown, last_modified)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(filepath) DO UPDATE SET
+                         employee_id=excluded.employee_id,
+                         filename=excluded.filename,
+                         meeting_date=excluded.meeting_date,
+                         title=excluded.title,
+                         summary=excluded.summary,
+                         action_items_json=excluded.action_items_json,
+                         granola_link=excluded.granola_link,
+                         content_markdown=excluded.content_markdown,
+                         last_modified=excluded.last_modified""",
                     (
                         m["employee_id"],
                         m["filename"],
@@ -148,16 +159,42 @@ def sync_github():
         _update_sync_state("github", "error", traceback.format_exc(), 0)
 
 
-def sync_ramp():
+def sync_ramp(org_only: bool = False):
     try:
         from connectors.ramp import sync_ramp_transactions
 
-        count = sync_ramp_transactions()
+        count = sync_ramp_transactions(org_only=org_only)
         _update_sync_state("ramp", "success", None, count)
     except ImportError:
         _update_sync_state("ramp", "error", "Ramp connector not available", 0)
     except Exception:
         _update_sync_state("ramp", "error", traceback.format_exc(), 0)
+
+
+def sync_ramp_vendors():
+    try:
+        from connectors.ramp import sync_ramp_vendors as _sync_vendors
+
+        count = _sync_vendors()
+        _update_sync_state("ramp_vendors", "success", None, count)
+    except ImportError:
+        _update_sync_state("ramp_vendors", "error", "Ramp connector not available", 0)
+    except Exception:
+        _update_sync_state("ramp_vendors", "error", traceback.format_exc(), 0)
+
+
+def sync_ramp_bills():
+    try:
+        from connectors.ramp import seed_projects_from_vendors
+        from connectors.ramp import sync_ramp_bills as _sync_bills
+
+        count = _sync_bills()
+        seed_projects_from_vendors()
+        _update_sync_state("ramp_bills", "success", None, count)
+    except ImportError:
+        _update_sync_state("ramp_bills", "error", "Ramp connector not available", 0)
+    except Exception:
+        _update_sync_state("ramp_bills", "error", traceback.format_exc(), 0)
 
 
 def sync_news():
@@ -173,24 +210,45 @@ def sync_news():
 
 
 def _run_full_sync():
-    global _sync_running
+    global _sync_running, _sync_current_source
     _sync_running = True
     try:
-        sync_meeting_files()
-        sync_granola()
-        sync_gmail()
-        sync_calendar()
-        sync_slack()
-        sync_notion()
-        sync_github()
-        sync_ramp()
-        # News runs last — it reads from already-synced slack/email data
+        # Group 1: Local sources — fast, no network, run in parallel
+        _sync_current_source = "markdown"
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futs = [pool.submit(sync_meeting_files), pool.submit(sync_granola)]
+            for f in as_completed(futs):
+                try:
+                    f.result()
+                except Exception:
+                    pass
+
+        # Group 2: External APIs — independent of each other, run in parallel
+        _sync_current_source = "gmail"
+        external = [sync_gmail, sync_calendar, sync_slack, sync_notion, sync_github, sync_ramp, sync_ramp_vendors]
+        with ThreadPoolExecutor(max_workers=len(external)) as pool:
+            futs = [pool.submit(fn) for fn in external]
+            for f in as_completed(futs):
+                try:
+                    f.result()
+                except Exception:
+                    pass
+
+        # Group 3: Bills — depends on vendors being synced first
+        _sync_current_source = "ramp_bills"
+        sync_ramp_bills()
+
+        # Group 4: News — reads from already-synced slack/email rows, must run last
+        _sync_current_source = "news"
         sync_news()
+
+        _sync_current_source = None
         # Rebuild FTS indexes after all data is refreshed
         from database import rebuild_fts
 
         rebuild_fts()
     finally:
+        _sync_current_source = None
         _sync_running = False
 
 
@@ -204,7 +262,11 @@ def trigger_sync(background_tasks: BackgroundTasks):
 
 
 @router.post("/{source}")
-def trigger_source_sync(source: str, background_tasks: BackgroundTasks):
+def trigger_source_sync(source: str, background_tasks: BackgroundTasks, org_only: bool = True):
+    if source == "ramp":
+        background_tasks.add_task(sync_ramp, org_only=org_only)
+        return {"status": "started", "source": source, "org_only": org_only}
+
     sync_map = {
         "markdown": sync_meeting_files,
         "granola": sync_granola,
@@ -213,8 +275,9 @@ def trigger_source_sync(source: str, background_tasks: BackgroundTasks):
         "slack": sync_slack,
         "notion": sync_notion,
         "github": sync_github,
-        "ramp": sync_ramp,
         "news": sync_news,
+        "ramp_vendors": sync_ramp_vendors,
+        "ramp_bills": sync_ramp_bills,
     }
     fn = sync_map.get(source)
     if not fn:
@@ -225,11 +288,12 @@ def trigger_source_sync(source: str, background_tasks: BackgroundTasks):
 
 @router.get("/status")
 def get_sync_status():
-    global _sync_running
+    global _sync_running, _sync_current_source
     db = get_db()
     rows = db.execute("SELECT * FROM sync_state").fetchall()
     db.close()
     return {
         "running": _sync_running,
+        "current_source": _sync_current_source,
         "sources": {row["source"]: dict(row) for row in rows},
     }

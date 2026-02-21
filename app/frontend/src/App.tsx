@@ -7,6 +7,7 @@ import { SearchOverlay } from './components/SearchOverlay';
 import { KeyboardHelp } from './components/KeyboardHelp';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { UndoToast, getUndoTrigger } from './components/UndoToast';
+import { SyncProgressOverlay } from './components/SyncProgressOverlay';
 import { useSync } from './api/hooks';
 import { DashboardPage } from './pages/DashboardPage';
 import { NotePage } from './pages/NotePage';
@@ -76,6 +77,8 @@ function AppContent() {
             <Route path="/slack" element={<SlackPage />} />
             <Route path="/notion" element={<NotionPage />} />
             <Route path="/ramp" element={<RampPage />} />
+            <Route path="/ramp/bills" element={<RampPage />} />
+            <Route path="/ramp/projects" element={<RampPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/claude" element={null} />
           </Routes>
@@ -84,6 +87,7 @@ function AppContent() {
           </div>
         </main>
       </div>
+      <SyncProgressOverlay />
       <ErrorLogPanel />
       <SearchOverlay
         isOpen={searchOpen}

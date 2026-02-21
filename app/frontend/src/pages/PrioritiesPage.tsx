@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { usePriorities, useRefreshPriorities, useDismissPriority } from '../api/hooks';
 import { useFocusNavigation } from '../hooks/useFocusNavigation';
 
@@ -7,6 +7,7 @@ const SOURCE_LABELS: Record<string, string> = {
   email: 'Email',
   calendar: 'Calendar',
   note: 'Note',
+  ramp: 'Ramp',
 };
 
 export function PrioritiesPage() {
@@ -14,7 +15,7 @@ export function PrioritiesPage() {
   const refreshPriorities = useRefreshPriorities();
   const dismissPriority = useDismissPriority();
 
-  const items = priorities?.items ?? [];
+  const items = useMemo(() => priorities?.items ?? [], [priorities]);
 
   const handleDismiss = (title: string, reason: 'done' | 'ignored') => {
     dismissPriority.mutate({ title, reason });
@@ -23,9 +24,9 @@ export function PrioritiesPage() {
   const onDismiss = useCallback(
     (index: number) => {
       const item = items[index];
-      if (item) handleDismiss(item.title, 'ignored');
+      if (item) dismissPriority.mutate({ title: item.title, reason: 'ignored' });
     },
-    [items],
+    [items, dismissPriority],
   );
 
   const { containerRef } = useFocusNavigation({

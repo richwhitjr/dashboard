@@ -146,7 +146,6 @@ def sync_github_prs() -> int:
             all_rows.append(_pr_to_row(pr, is_review))
 
     db = get_db()
-    db.execute("DELETE FROM github_pull_requests")
     db.executemany(
         """INSERT OR REPLACE INTO github_pull_requests
            (id, number, title, state, draft, author, html_url, created_at, updated_at,

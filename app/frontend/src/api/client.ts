@@ -21,6 +21,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
  */
 export function openExternal(url: string) {
   // pywebview injects window.pywebview; if present, use the backend endpoint
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   if ((window as any).pywebview) {
     fetch('/api/open-url', {
       method: 'POST',

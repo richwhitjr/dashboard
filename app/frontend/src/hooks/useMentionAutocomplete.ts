@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
 import type { Employee } from '../api/types';
 
 export function useMentionAutocomplete(employees: Employee[] | undefined) {
@@ -7,13 +7,17 @@ export function useMentionAutocomplete(employees: Employee[] | undefined) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const matches = mentionQuery !== null && employees
-    ? employees.filter((e) =>
-        mentionQuery === '' ||
-        e.name.toLowerCase().includes(mentionQuery.toLowerCase()) ||
-        e.name.toLowerCase().split(' ')[0].startsWith(mentionQuery.toLowerCase())
-      )
-    : [];
+  const matches = useMemo(
+    () =>
+      mentionQuery !== null && employees
+        ? employees.filter((e) =>
+            mentionQuery === '' ||
+            e.name.toLowerCase().includes(mentionQuery.toLowerCase()) ||
+            e.name.toLowerCase().split(' ')[0].startsWith(mentionQuery.toLowerCase())
+          )
+        : [],
+    [mentionQuery, employees],
+  );
 
   const isOpen = mentionQuery !== null && matches.length > 0;
 

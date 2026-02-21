@@ -36,6 +36,7 @@ from routers import (
     notes,
     notion_api,
     priorities,
+    projects_api,
     ramp_api,
     search,
     slack_api,
@@ -69,6 +70,7 @@ app.include_router(slack_api.router)
 app.include_router(notion_api.router)
 app.include_router(github_api.router)
 app.include_router(ramp_api.router)
+app.include_router(projects_api.router)
 app.include_router(search.router)
 app.include_router(meetings.router)
 app.include_router(issues.router)

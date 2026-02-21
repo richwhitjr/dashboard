@@ -39,7 +39,6 @@ def sync_calendar_events() -> int:
         if not page_token:
             break
     db = get_db()
-    db.execute("DELETE FROM calendar_events")
 
     for event in events:
         start = event.get("start", {})

@@ -3,6 +3,7 @@ import { useUndoStack } from '../hooks/useUndo';
 
 let triggerUndo: (() => void) | null = null;
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function getUndoTrigger() {
   return triggerUndo;
 }

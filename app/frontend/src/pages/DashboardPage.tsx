@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { useDashboard, usePriorities, useRefreshPriorities, useDismissPriority, useDismissDashboardItem } from '../api/hooks';
+import { useDashboard, usePriorities, useRefreshPriorities, useDismissPriority, useDismissDashboardItem, useSyncStatus } from '../api/hooks';
 import { TimeAgo } from '../components/shared/TimeAgo';
 import { NewsFeed } from '../components/NewsFeed';
 import { EmailThreadModal } from '../components/EmailThreadModal';
@@ -16,6 +16,16 @@ const SOURCE_LABELS: Record<string, string> = {
 };
 
 const DAY_OPTIONS = [1, 7, 30] as const;
+
+function formatTimeAgo(iso: string) {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
 
 function DayFilter({ value, onChange }: { value: number; onChange: (d: number) => void }) {
   return (
@@ -48,6 +58,17 @@ function DismissBtn({ onClick }: { onClick: () => void }) {
 export function DashboardPage() {
   const [days, setDays] = useState(7);
   const { data, isLoading } = useDashboard(days);
+  const { data: syncStatus } = useSyncStatus();
+
+  const lastSyncedAt = (() => {
+    if (!syncStatus?.sources) return null;
+    const timestamps = Object.values(syncStatus.sources)
+      .map((s) => s.last_sync_at)
+      .filter(Boolean);
+    if (!timestamps.length) return null;
+    return timestamps.reduce((a, b) => (a > b ? a : b));
+  })();
+
   const { data: priorities, isLoading: prioritiesLoading } = usePriorities();
   const refreshPriorities = useRefreshPriorities();
   const dismissPriority = useDismissPriority();
@@ -448,6 +469,19 @@ export function DashboardPage() {
 
       {allItems.length > 0 && (
         <KeyboardHints hints={['j/k navigate', 'Enter open', 'e expand', 'd dismiss']} />
+      )}
+
+      {lastSyncedAt && (
+        <div style={{
+          position: 'fixed',
+          bottom: 16,
+          left: 'calc(var(--sidebar-width) + 16px)',
+          fontSize: 'var(--text-xs)',
+          color: 'var(--color-text-light)',
+          pointerEvents: 'none',
+        }}>
+          synced {formatTimeAgo(lastSyncedAt)}
+        </div>
       )}
     </div>
   );

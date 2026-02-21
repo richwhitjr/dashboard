@@ -233,3 +233,52 @@ def delete_session(session_id: int):
     db.commit()
     db.close()
     return {"ok": True}
+
+
+@router.post("/{session_id}/create_note")
+def create_note_from_session(session_id: int):
+    """Create a note summarizing this Claude session with bidirectional links."""
+    db = get_db()
+
+    # Get the session
+    row = db.execute("SELECT * FROM claude_sessions WHERE id = ?", (session_id,)).fetchone()
+    if not row:
+        db.close()
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = dict(row)
+
+    # Check if a note already exists for this session
+    existing = db.execute("SELECT id FROM notes WHERE claude_session_id = ?", (session_id,)).fetchone()
+
+    if existing:
+        db.close()
+        raise HTTPException(status_code=400, detail="Note already exists for this session")
+
+    # Build note text with summary and link back to session
+    note_text = f"**Claude Session**: [{session['title']}](/claude?session={session_id})\n\n"
+
+    if session.get("summary"):
+        note_text += session["summary"]
+    else:
+        # Fallback to preview if no summary yet
+        note_text += session.get("preview", "Session in progress...")
+
+    # Insert the note
+    cursor = db.execute(
+        """
+        INSERT INTO notes (text, priority, status, claude_session_id, created_at)
+        VALUES (?, ?, ?, ?, datetime('now'))
+        """,
+        (note_text, 1, "open", session_id),
+    )
+    note_id = cursor.lastrowid
+
+    # Get the created note
+    note_row = db.execute("SELECT * FROM notes WHERE id = ?", (note_id,)).fetchone()
+    result = dict(note_row)
+
+    db.commit()
+    db.close()
+
+    return result

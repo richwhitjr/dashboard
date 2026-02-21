@@ -99,11 +99,10 @@ def sync_granola_meetings() -> int:
         return 0
 
     db = get_db()
-    db.execute("DELETE FROM granola_meetings")
 
     for m in meetings:
         db.execute(
-            """INSERT INTO granola_meetings
+            """INSERT OR REPLACE INTO granola_meetings
                (id, title, created_at, updated_at, calendar_event_id, calendar_event_summary,
                 attendees_json, panel_summary_html, panel_summary_plain, transcript_text,
                 granola_link, employee_id, valid_meeting)

@@ -55,6 +55,7 @@ export interface Note {
   created_at: string;
   completed_at: string | null;
   due_date: string | null;
+  claude_session_id: number | null;
 }
 
 export interface Issue {
@@ -199,6 +200,7 @@ export interface GitHubCodeSearchResult {
 
 export interface SyncStatus {
   running: boolean;
+  current_source?: string | null;
   sources: Record<
     string,
     {
@@ -401,7 +403,7 @@ export interface DashboardData {
   notion_recent: NotionPage[];
   github_review_requests: GitHubPullRequest[];
   notes_open_count: number;
-  sync_status: Record<string, any>;
+  sync_status: Record<string, unknown>;
 }
 
 export interface PrioritizedNewsItem {
@@ -517,6 +519,50 @@ export interface RampData {
   items: RampTransaction[];
   total_amount: number;
   error?: string;
+}
+
+export interface RampBill {
+  id: string;
+  vendor_id: string;
+  vendor_name: string;
+  amount: number;
+  currency: string;
+  due_at: string | null;
+  issued_at: string | null;
+  paid_at: string | null;
+  invoice_number: string | null;
+  memo: string | null;
+  status: string;
+  approval_status: string;
+  payment_status: string;
+  payment_method: string | null;
+  project_id: number | null;
+  project_name: string | null;
+  ramp_url: string | null;
+}
+
+export interface RampBillsResponse {
+  bills: RampBill[];
+  total: number;
+}
+
+export interface Project {
+  id: number;
+  name: string;
+  description: string | null;
+  budget_amount: number;
+  currency: string;
+  status: string;
+  vendor_id: string | null;
+  notes: string | null;
+  committed_amount: number;
+  paid_amount: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectsResponse {
+  projects: Project[];
 }
 
 // --- Claude Sessions ---

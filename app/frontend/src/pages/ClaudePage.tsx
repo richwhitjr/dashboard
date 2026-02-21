@@ -1,58 +1,25 @@
-import { useEffect, useRef, useState } from 'react';
-import { Terminal } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
-import { WebLinksAddon } from '@xterm/addon-web-links';
-import { SerializeAddon } from '@xterm/addon-serialize';
-import '@xterm/xterm/css/xterm.css';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { TimeAgo } from '../components/shared/TimeAgo';
 import { MarkdownRenderer } from '../components/shared/MarkdownRenderer';
+import { ClaudeTerminal } from '../components/ClaudeTerminal';
+import type { ClaudeTerminalHandle } from '../components/ClaudeTerminal';
 import {
   useClaudeSessions,
   useClaudeSessionContent,
   useSaveClaudeSession,
   useDeleteClaudeSession,
+  useCreateNoteFromSession,
 } from '../api/hooks';
 
-const TERM_THEME = {
-  background: '#1a1b26',
-  foreground: '#c0caf5',
-  cursor: '#c0caf5',
-  selectionBackground: '#33467c',
-  black: '#15161e',
-  red: '#f7768e',
-  green: '#9ece6a',
-  yellow: '#e0af68',
-  blue: '#7aa2f7',
-  magenta: '#bb9af7',
-  cyan: '#7dcfff',
-  white: '#a9b1d6',
-  brightBlack: '#414868',
-  brightRed: '#f7768e',
-  brightGreen: '#9ece6a',
-  brightYellow: '#e0af68',
-  brightBlue: '#7aa2f7',
-  brightMagenta: '#bb9af7',
-  brightCyan: '#7dcfff',
-  brightWhite: '#c0caf5',
-};
-
-const TERM_FONT = "'SF Mono', 'Fira Code', 'Cascadia Code', monospace";
-
-function getPlainText(term: Terminal): string {
-  const lines: string[] = [];
-  const buffer = term.buffer.active;
-  for (let i = 0; i < buffer.length; i++) {
-    const line = buffer.getLine(i);
-    if (line) lines.push(line.translateToString(true));
-  }
-  return lines.join('\n').trimEnd();
+interface Tab {
+  id: string;
+  label: string;
 }
 
 function generateTitle(plainText: string): string {
   const lines = plainText.split('\n').filter((l) => l.trim());
   for (const line of lines) {
     const trimmed = line.trim();
-    // Claude Code shows ❯ or > for user input
     if ((trimmed.startsWith('> ') || trimmed.startsWith('\u276F ')) && trimmed.length > 3) {
       return trimmed.slice(2).slice(0, 60);
     }
@@ -60,229 +27,128 @@ function generateTitle(plainText: string): string {
   return `Session ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 }
 
-export function ClaudePage({ visible, overlayOpen }: { visible: boolean; overlayOpen?: boolean }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const termRef = useRef<Terminal | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const fitRef = useRef<FitAddon | null>(null);
-  const serializeRef = useRef<SerializeAddon | null>(null);
+let nextTabId = 2;
 
-  const [connected, setConnected] = useState(false);
-  const [disconnected, setDisconnected] = useState(false);
+export function ClaudePage({ visible, overlayOpen }: { visible: boolean; overlayOpen?: boolean }) {
+  const [tabs, setTabs] = useState<Tab[]>([{ id: '1', label: 'Session 1' }]);
+  const [activeTabId, setActiveTabId] = useState('1');
+  const [tabStatus, setTabStatus] = useState<Map<string, string>>(new Map([['1', 'connecting']]));
+  const terminalRefs = useRef<Map<string, ClaudeTerminalHandle>>(new Map());
+  const tabCounterRef = useRef(1);
+
   const [panelOpen, setPanelOpen] = useState(false);
   const [viewingSessionId, setViewingSessionId] = useState<number | null>(null);
   const [sessionTitle, setSessionTitle] = useState('');
-  const [sessionKey, setSessionKey] = useState(0);
 
   const { data: sessions } = useClaudeSessions();
   const { data: sessionContent } = useClaudeSessionContent(viewingSessionId);
   const saveSession = useSaveClaudeSession();
   const deleteSession = useDeleteClaudeSession();
+  const createNoteFromSession = useCreateNoteFromSession();
 
-  function connect() {
-    if (!containerRef.current) return;
-
-    // Clean up previous
-    if (termRef.current) {
-      termRef.current.dispose();
-    }
-    if (wsRef.current) {
-      wsRef.current.close();
-    }
-
-    setDisconnected(false);
-    setConnected(false);
-
-    const term = new Terminal({
-      cursorBlink: true,
-      fontSize: 14,
-      fontFamily: TERM_FONT,
-      theme: TERM_THEME,
-      scrollback: 10000,
-    });
-
-    const fitAddon = new FitAddon();
-    const webLinksAddon = new WebLinksAddon();
-    const serializeAddon = new SerializeAddon();
-    term.loadAddon(fitAddon);
-    term.loadAddon(webLinksAddon);
-    term.loadAddon(serializeAddon);
-
-    // Only let Cmd+K pass through to the app for search
-    term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') return false;
-      return true;
-    });
-
-    term.open(containerRef.current);
-    fitAddon.fit();
-
-    termRef.current = term;
-    fitRef.current = fitAddon;
-    serializeRef.current = serializeAddon;
-
-    // WebSocket
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${proto}//${location.host}/api/ws/claude`);
-    ws.binaryType = 'arraybuffer';
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      setConnected(true);
-      ws.send(JSON.stringify({
-        type: 'resize',
-        rows: term.rows,
-        cols: term.cols,
-      }));
-    };
-
-    ws.onmessage = (evt) => {
-      if (evt.data instanceof ArrayBuffer) {
-        term.write(new Uint8Array(evt.data));
-      } else {
-        term.write(evt.data);
-      }
-    };
-
-    ws.onclose = () => {
-      setConnected(false);
-      setDisconnected(true);
-      term.write('\r\n\x1b[90m--- session ended ---\x1b[0m\r\n');
-    };
-
-    ws.onerror = () => {
-      setConnected(false);
-      setDisconnected(true);
-    };
-
-    term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(new TextEncoder().encode(data));
-      }
-    });
-
-    term.onBinary((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        const buf = new Uint8Array(data.length);
-        for (let i = 0; i < data.length; i++) buf[i] = data.charCodeAt(i);
-        ws.send(buf);
-      }
-    });
-
-    term.onResize(({ rows, cols }) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'resize', rows, cols }));
-      }
-    });
-
-    const onResize = () => fitAddon.fit();
-    window.addEventListener('resize', onResize);
-
-    term.focus();
-
-    return () => {
-      window.removeEventListener('resize', onResize);
-    };
-  }
-
+  // Check for session query parameter on mount
   useEffect(() => {
-    let resizeCleanup: (() => void) | undefined;
-
-    // Delay reconnect on key change to let backend kill the old PTY first
-    const timer = setTimeout(() => {
-      resizeCleanup = connect() ?? undefined;
-    }, sessionKey === 0 ? 0 : 600);
-
-    return () => {
-      clearTimeout(timer);
-      resizeCleanup?.();
-      if (wsRef.current) {
-        wsRef.current.onclose = null;
-        wsRef.current.close();
-        wsRef.current = null;
+    const params = new URLSearchParams(window.location.search);
+    const sessionParam = params.get('session');
+    if (sessionParam) {
+      const sessionId = parseInt(sessionParam, 10);
+      if (!isNaN(sessionId)) {
+        setViewingSessionId(sessionId);
+        setPanelOpen(true);
       }
-      if (termRef.current) {
-        termRef.current.dispose();
-        termRef.current = null;
-      }
-      serializeRef.current = null;
-      fitRef.current = null;
-      if (containerRef.current) {
-        containerRef.current.innerHTML = '';
-      }
-    };
-  }, [sessionKey]);  
-
-  // Re-fit when container resizes (e.g. panel toggle)
-  useEffect(() => {
-    const observer = new ResizeObserver(() => {
-      fitRef.current?.fit();
-    });
-    if (containerRef.current) {
-      observer.observe(containerRef.current);
     }
-    return () => observer.disconnect();
   }, []);
 
-  // Re-fit and focus when tab becomes visible or overlay closes
-  useEffect(() => {
-    if (visible && !overlayOpen) {
-      const t = setTimeout(() => {
-        fitRef.current?.fit();
-        if (!viewingSessionId) {
-          termRef.current?.focus();
-        }
-      }, 50);
-      return () => clearTimeout(t);
-    }
-  }, [visible, overlayOpen, viewingSessionId]);
+  const updateTabStatus = useCallback((tabId: string, status: string) => {
+    setTabStatus((prev) => {
+      const next = new Map(prev);
+      next.set(tabId, status);
+      return next;
+    });
+  }, []);
 
-  function toBase64(str: string): string {
-    // btoa() only handles Latin1; encode via TextEncoder for full unicode safety
-    const bytes = new TextEncoder().encode(str);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return btoa(binary);
+  function addTab() {
+    tabCounterRef.current += 1;
+    const id = String(nextTabId++);
+    const label = `Session ${tabCounterRef.current}`;
+    setTabs((prev) => [...prev, { id, label }]);
+    setActiveTabId(id);
+    setTabStatus((prev) => {
+      const next = new Map(prev);
+      next.set(id, 'connecting');
+      return next;
+    });
+  }
+
+  function closeTab(tabId: string) {
+    setTabs((prev) => {
+      if (prev.length <= 1) {
+        // Last tab — create a new one, then remove the old
+        tabCounterRef.current += 1;
+        const newId = String(nextTabId++);
+        const newLabel = `Session ${tabCounterRef.current}`;
+        setActiveTabId(newId);
+        setTabStatus((s) => {
+          const next = new Map(s);
+          next.delete(tabId);
+          next.set(newId, 'connecting');
+          return next;
+        });
+        return [{ id: newId, label: newLabel }];
+      }
+
+      const idx = prev.findIndex((t) => t.id === tabId);
+      const next = prev.filter((t) => t.id !== tabId);
+
+      if (tabId === activeTabId) {
+        // Switch to nearest neighbor
+        const newIdx = Math.min(idx, next.length - 1);
+        setActiveTabId(next[newIdx].id);
+        setTimeout(() => terminalRefs.current.get(next[newIdx].id)?.focus(), 50);
+      }
+
+      setTabStatus((s) => {
+        const updated = new Map(s);
+        updated.delete(tabId);
+        return updated;
+      });
+
+      return next;
+    });
+
+    // Cleanup ref
+    terminalRefs.current.delete(tabId);
+  }
+
+  function switchTab(tabId: string) {
+    setActiveTabId(tabId);
+    setViewingSessionId(null);
+    setTimeout(() => terminalRefs.current.get(tabId)?.focus(), 50);
   }
 
   function handleSave() {
-    const term = termRef.current;
-    const serialize = serializeRef.current;
-    if (!term || !serialize) {
-      console.warn('Cannot save: terminal or serialize addon not available');
+    const handle = terminalRefs.current.get(activeTabId);
+    if (!handle) return;
+
+    const data = handle.serialize();
+    if (!data) {
+      console.warn('Cannot save: terminal not available');
       return;
     }
 
-    try {
-      const raw = serialize.serialize();
-      const content = toBase64(raw);
-      const plainText = getPlainText(term);
-      const title = sessionTitle || generateTitle(plainText);
+    const title = sessionTitle || generateTitle(data.plainText);
 
-      saveSession.mutate({
-        title,
-        content,
-        plain_text: plainText,
-        rows: term.rows,
-        cols: term.cols,
-      }, {
-        onSuccess: () => {
-          setSessionTitle('');
-        },
-      });
-    } catch (err) {
-      console.error('Failed to save session:', err);
-    }
-  }
-
-  function handleNewChat() {
-    setViewingSessionId(null);
-    setSessionTitle('');
-    // Bump key — React runs the useEffect cleanup (closes WS, disposes terminal)
-    // then re-runs it (calls connect() fresh), same as initial mount
-    setSessionKey((k) => k + 1);
+    saveSession.mutate({
+      title,
+      content: data.content,
+      plain_text: data.plainText,
+      rows: data.rows,
+      cols: data.cols,
+    }, {
+      onSuccess: () => {
+        setSessionTitle('');
+      },
+    });
   }
 
   function handleViewSession(id: number) {
@@ -292,8 +158,8 @@ export function ClaudePage({ visible, overlayOpen }: { visible: boolean; overlay
   function handleBackToTerminal() {
     setViewingSessionId(null);
     setTimeout(() => {
-      fitRef.current?.fit();
-      termRef.current?.focus();
+      terminalRefs.current.get(activeTabId)?.fit();
+      terminalRefs.current.get(activeTabId)?.focus();
     }, 50);
   }
 
@@ -304,6 +170,18 @@ export function ClaudePage({ visible, overlayOpen }: { visible: boolean; overlay
       handleBackToTerminal();
     }
   }
+
+  function handleCreateNote(id: number, e: React.MouseEvent) {
+    e.stopPropagation();
+    createNoteFromSession.mutate(id, {
+      onError: (error: Error) => {
+        if (error?.message?.includes('already exists')) return;
+        console.error('Failed to create note:', error);
+      },
+    });
+  }
+
+  const activeStatus = tabStatus.get(activeTabId);
 
   return (
     <div className="claude-page">
@@ -329,7 +207,7 @@ export function ClaudePage({ visible, overlayOpen }: { visible: boolean; overlay
               onKeyDown={(e) => {
                 if (e.key === 'Escape') {
                   e.currentTarget.blur();
-                  termRef.current?.focus();
+                  terminalRefs.current.get(activeTabId)?.focus();
                 }
               }}
             />
@@ -342,7 +220,7 @@ export function ClaudePage({ visible, overlayOpen }: { visible: boolean; overlay
             </button>
           ) : (
             <>
-              {connected && <span className="status-ok">connected</span>}
+              {activeStatus === 'connected' && <span className="status-ok">connected</span>}
               <button
                 className="auth-action-btn"
                 onClick={handleSave}
@@ -350,17 +228,32 @@ export function ClaudePage({ visible, overlayOpen }: { visible: boolean; overlay
               >
                 {saveSession.isPending ? 'Saving...' : 'Save'}
               </button>
-              <button className="auth-action-btn" onClick={handleNewChat}>
-                + New
-              </button>
-              {disconnected && (
-                <button className="auth-action-btn" onClick={connect}>
-                  Reconnect
-                </button>
-              )}
             </>
           )}
         </div>
+      </div>
+
+      {/* Tab bar */}
+      <div className="claude-tab-bar">
+        {tabs.map((tab) => (
+          <div
+            key={tab.id}
+            className={`claude-tab${tab.id === activeTabId ? ' active' : ''}`}
+            onClick={() => switchTab(tab.id)}
+          >
+            <span className="claude-tab-label">{tab.label}</span>
+            <button
+              className="claude-tab-close"
+              onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
+              title="Close tab"
+            >
+              &times;
+            </button>
+          </div>
+        ))}
+        <button className="claude-tab-new" onClick={addTab} title="New session">
+          +
+        </button>
       </div>
 
       <div className="claude-body">
@@ -382,6 +275,14 @@ export function ClaudePage({ visible, overlayOpen }: { visible: boolean; overlay
                     <div className="claude-session-item-preview">{s.preview}</div>
                   )}
                   <button
+                    className="claude-session-note-btn"
+                    onClick={(e) => handleCreateNote(s.id, e)}
+                    title="Create note from session"
+                    disabled={createNoteFromSession.isPending}
+                  >
+                    📝
+                  </button>
+                  <button
                     className="claude-session-delete"
                     onClick={(e) => handleDeleteSession(s.id, e)}
                     title="Delete session"
@@ -398,12 +299,20 @@ export function ClaudePage({ visible, overlayOpen }: { visible: boolean; overlay
         )}
 
         <div className="claude-main-area">
-          {/* Live terminal — always mounted, hidden when viewing a session */}
-          <div
-            className="claude-terminal"
-            ref={containerRef}
-            style={{ display: viewingSessionId ? 'none' : undefined }}
-          />
+          {/* All terminals mounted, only active visible */}
+          {tabs.map((tab) => (
+            <ClaudeTerminal
+              key={tab.id}
+              ref={(handle) => {
+                if (handle) terminalRefs.current.set(tab.id, handle);
+                else terminalRefs.current.delete(tab.id);
+              }}
+              visible={tab.id === activeTabId && !viewingSessionId && visible}
+              overlayOpen={overlayOpen}
+              onConnected={() => updateTabStatus(tab.id, 'connected')}
+              onDisconnected={() => updateTabStatus(tab.id, 'disconnected')}
+            />
+          ))}
 
           {/* Session viewer — shown when viewing a saved session */}
           {viewingSessionId && sessionContent && (

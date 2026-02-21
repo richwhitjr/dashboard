@@ -1,10 +1,11 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   useNotes,
   useCreateNote,
   useUpdateNote,
   useDeleteNote,
+  useCreateIssue,
 } from '../api/hooks';
 import type { Note } from '../api/types';
 import { useFocusNavigation } from '../hooks/useFocusNavigation';
@@ -116,9 +117,10 @@ export function ThoughtsPage() {
   const createNote = useCreateNote();
   const updateNote = useUpdateNote();
   const deleteNote = useDeleteNote();
+  const createIssue = useCreateIssue();
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const thoughts = notes?.filter(isThought) ?? [];
+  const thoughts = useMemo(() => notes?.filter(isThought) ?? [], [notes]);
 
   // Keyboard navigation callbacks
   const handleToggleAtIndex = (index: number) => {
@@ -143,12 +145,24 @@ export function ThoughtsPage() {
     }
   };
 
+  const handleCreateIssueAtIndex = (index: number) => {
+    const thought = thoughts[index];
+    if (thought) {
+      const strippedText = thought.text.replace(/^\[[tT]\]\s*/, '');
+      createIssue.mutate({
+        title: strippedText,
+        employee_ids: thought.employee_id ? [thought.employee_id] : undefined,
+      });
+    }
+  };
+
   const { containerRef } = useFocusNavigation({
     selector: '.dashboard-item-row',
     enabled: !isLoading,
-    onDismiss: handleToggleAtIndex, // 'd' toggles done status
-    onOpen: handleEditAtIndex,      // 'Enter' starts editing
-    onExpand: handleEditAtIndex,     // 'e' starts editing
+    onDismiss: handleToggleAtIndex,
+    onOpen: handleEditAtIndex,
+    onExpand: handleEditAtIndex,
+    onCreateIssue: handleCreateIssueAtIndex,
   });
 
   // Deep-link: scroll to and highlight a specific thought from search
@@ -170,7 +184,7 @@ export function ThoughtsPage() {
         }
       }, 100);
     }
-  }, [searchParams, thoughts, statusFilter]);
+  }, [searchParams, thoughts, statusFilter, setSearchParams]);
 
   // Auto-focus input when arriving via search (focus=1 param)
   useEffect(() => {
@@ -178,6 +192,7 @@ export function ThoughtsPage() {
       setSearchParams({}, { replace: true });
       setTimeout(() => inputRef.current?.focus(), 100);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -273,7 +288,7 @@ export function ThoughtsPage() {
       </div>
 
       {thoughts.length > 0 && (
-        <KeyboardHints hints={['j/k navigate', 'Enter edit', 'e edit', 'd toggle done']} />
+        <KeyboardHints hints={['j/k navigate', 'Enter edit', 'e edit', 'd done', 'i create issue']} />
       )}
     </div>
   );

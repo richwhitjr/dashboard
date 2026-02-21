@@ -28,6 +28,7 @@ def run_migrations():
 
     # Find alembic executable in venv
     import sys
+
     alembic_path = Path(sys.executable).parent / "alembic"
     if not alembic_path.exists():
         # Fallback to system alembic

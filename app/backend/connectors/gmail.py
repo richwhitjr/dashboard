@@ -13,25 +13,32 @@ def sync_gmail_messages() -> int:
     creds = get_google_credentials()
     service = build("gmail", "v1", credentials=creds)
 
-    # Get recent inbox messages
+    # Get recent inbox message IDs
     results = service.users().messages().list(userId="me", maxResults=GMAIL_MAX_RESULTS, labelIds=["INBOX"]).execute()
-
     messages = results.get("messages", [])
     if not messages:
         return 0
 
     db = get_db()
-    db.execute("DELETE FROM emails")
 
-    count = 0
+    # Batch fetch all messages in a single HTTP request instead of N sequential calls
+    fetched: list[dict] = []
+
+    def _on_message(request_id, response, exception):
+        if exception is None and response:
+            fetched.append(response)
+
+    batch = service.new_batch_http_request(callback=_on_message)
     for msg_ref in messages:
-        msg = (
+        batch.add(
             service.users()
             .messages()
             .get(userId="me", id=msg_ref["id"], format="metadata", metadataHeaders=["From", "To", "Subject", "Date"])
-            .execute()
         )
+    batch.execute()
 
+    count = 0
+    for msg in fetched:
         headers = {h["name"]: h["value"] for h in msg.get("payload", {}).get("headers", [])}
 
         from_header = headers.get("From", "")

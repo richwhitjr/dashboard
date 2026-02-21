@@ -227,11 +227,11 @@ function ServiceCard({
         )}
       </div>
 
-      {googleAuth.data && (googleAuth.data as any).error && (
+      {googleAuth.data?.error && (
         <div className="auth-error" style={{ marginTop: 'var(--space-sm)' }}>
           <div className="auth-error-label">OAuth Error</div>
           <div className="auth-error-message">
-            {(googleAuth.data as any).error}
+            {googleAuth.data.error}
           </div>
         </div>
       )}

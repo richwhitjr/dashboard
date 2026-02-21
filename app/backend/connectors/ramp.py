@@ -4,6 +4,7 @@ import logging
 import os
 import time
 from datetime import datetime, timedelta
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 
@@ -15,10 +16,12 @@ logger = logging.getLogger(__name__)
 RAMP_BASE_URL = "https://api.ramp.com"
 TOKEN_URL = f"{RAMP_BASE_URL}/developer/v1/token"
 TRANSACTIONS_URL = f"{RAMP_BASE_URL}/developer/v1/transactions"
+VENDORS_URL = f"{RAMP_BASE_URL}/developer/v1/accounting/vendors"
+BILLS_URL = f"{RAMP_BASE_URL}/developer/v1/bills"
 
-# In-memory token cache
+# In-memory token cache (reset expiry so new scope is fetched on next call)
 _cached_token: str | None = None
-_token_expires_at: float = 0
+_token_expires_at: float = 0  # set to 0 to force re-auth with updated scopes
 
 
 def _get_ramp_credentials() -> tuple[str, str]:
@@ -41,9 +44,9 @@ def _get_access_token() -> str:
         TOKEN_URL,
         data={
             "grant_type": "client_credentials",
-            "client_id": client_id,
-            "client_secret": client_secret,
+            "scope": "transactions:read bills:read accounting:read",
         },
+        auth=(client_id, client_secret),
         timeout=30,
     )
     resp.raise_for_status()
@@ -61,10 +64,30 @@ def _headers() -> dict:
     }
 
 
-def sync_ramp_transactions() -> int:
-    """Fetch recent transactions from Ramp and store in SQLite. Returns count."""
-    cutoff = datetime.utcnow() - timedelta(days=RAMP_TRANSACTION_SYNC_DAYS)
-    cutoff_iso = cutoff.strftime("%Y-%m-%dT00:00:00Z")
+def _get_org_names() -> set[str]:
+    """Return lowercase full names of all employees in the DB."""
+    db = get_db()
+    rows = db.execute("SELECT name FROM employees WHERE name IS NOT NULL AND name != ''").fetchall()
+    db.close()
+    return {row["name"].lower() for row in rows}
+
+
+def sync_ramp_transactions(org_only: bool = False, from_date: str | None = None) -> int:
+    """Fetch transactions from Ramp and store in SQLite. Returns count.
+
+    Args:
+        org_only: If True, only store transactions from employees in the org DB.
+        from_date: ISO date string (e.g. '2024-01-01') to pull from. Defaults to
+                   RAMP_TRANSACTION_SYNC_DAYS ago.
+    """
+    if from_date:
+        cutoff_iso = f"{from_date}T00:00:00Z"
+    else:
+        cutoff = datetime.utcnow() - timedelta(days=RAMP_TRANSACTION_SYNC_DAYS)
+        cutoff_iso = cutoff.strftime("%Y-%m-%dT00:00:00Z")
+
+    org_names = _get_org_names() if org_only else None
+    logger.info("Ramp sync: org_only=%s, org members=%d", org_only, len(org_names) if org_names else -1)
 
     all_transactions = []
     params: dict = {
@@ -74,8 +97,9 @@ def sync_ramp_transactions() -> int:
     }
 
     # Paginate through all results
+    url = TRANSACTIONS_URL
     while True:
-        resp = httpx.get(TRANSACTIONS_URL, headers=_headers(), params=params, timeout=30)
+        resp = httpx.get(url, headers=_headers(), params=params, timeout=30)
         resp.raise_for_status()
         data = resp.json()
 
@@ -85,16 +109,40 @@ def sync_ramp_transactions() -> int:
         else:
             break
 
-        # Cursor-based pagination
+        # Cursor-based pagination — extract start cursor from page.next URL
         page = data.get("page", {})
-        next_cursor = page.get("next")
-        if not next_cursor:
+        next_url = page.get("next")
+        if not next_url:
             break
-        params["start"] = next_cursor
+        parsed = urlparse(next_url)
+        qs = parse_qs(parsed.query)
+        start_cursor = qs.get("start", [None])[0]
+        if not start_cursor:
+            break
+        url = TRANSACTIONS_URL
+        params = {
+            "from_date": cutoff_iso,
+            "page_size": 100,
+            "order_by_date_desc": "true",
+            "start": start_cursor,
+        }
+
+    # Filter to org members if requested
+    if org_names is not None:
+        before = len(all_transactions)
+        ch = None
+        all_transactions = [
+            t
+            for t in all_transactions
+            if (
+                (ch := t.get("card_holder") or {})
+                and f"{ch.get('first_name', '')} {ch.get('last_name', '')}".strip().lower() in org_names
+            )
+        ]
+        logger.info("Ramp org filter: %d → %d transactions", before, len(all_transactions))
 
     # Store to DB
     db = get_db()
-    db.execute("DELETE FROM ramp_transactions")
     count = 0
     for txn in all_transactions:
         txn_id = txn.get("id", "")
@@ -167,6 +215,184 @@ def sync_ramp_transactions() -> int:
 
     db.commit()
     db.close()
+    return count
+
+
+def sync_ramp_vendors() -> int:
+    """Fetch vendors from Ramp accounting/vendors and store in ramp_vendors. Returns count."""
+    all_vendors = []
+    params: dict = {"page_size": 100}
+    url = VENDORS_URL
+    while True:
+        resp = httpx.get(url, headers=_headers(), params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+
+        vendors = data.get("data", data.get("results", []))
+        if isinstance(vendors, list):
+            all_vendors.extend(vendors)
+        else:
+            break
+
+        page = data.get("page", {})
+        next_url = page.get("next")
+        if not next_url:
+            break
+        parsed = urlparse(next_url)
+        qs = parse_qs(parsed.query)
+        start_cursor = qs.get("start", [None])[0]
+        if not start_cursor:
+            break
+        params = {"page_size": 100, "start": start_cursor}
+
+    db = get_db()
+    count = 0
+    for v in all_vendors:
+        vid = v.get("id", "")
+        if not vid:
+            continue
+        db.execute(
+            """INSERT OR REPLACE INTO ramp_vendors (id, name, is_active, synced_at)
+               VALUES (?, ?, ?, ?)""",
+            (vid, v.get("name", ""), 1 if v.get("is_active", True) else 0, datetime.utcnow().isoformat()),
+        )
+        count += 1
+    db.commit()
+    db.close()
+    logger.info("Ramp vendors synced: %d", count)
+    return count
+
+
+def sync_ramp_bills(from_date: str | None = None, wipe: bool = True) -> int:
+    """Fetch bills from Ramp and store in ramp_bills. Returns count.
+
+    Args:
+        from_date: ISO date string (e.g. '2024-01-01') to pull from. Defaults to
+                   RAMP_TRANSACTION_SYNC_DAYS ago.
+        wipe: If True, delete all existing bills before inserting (full refresh).
+              If False, upsert only (useful for historical backfill).
+    """
+    if from_date:
+        cutoff_iso = f"{from_date}T00:00:00Z"
+    else:
+        cutoff = datetime.utcnow() - timedelta(days=RAMP_TRANSACTION_SYNC_DAYS)
+        cutoff_iso = cutoff.strftime("%Y-%m-%dT00:00:00Z")
+
+    all_bills = []
+    params: dict = {"from_created_at": cutoff_iso, "page_size": 100}
+    url = BILLS_URL
+    while True:
+        resp = httpx.get(url, headers=_headers(), params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+
+        bills = data.get("data", data.get("results", []))
+        if isinstance(bills, list):
+            all_bills.extend(bills)
+        else:
+            break
+
+        page = data.get("page", {})
+        next_url = page.get("next")
+        if not next_url:
+            break
+        parsed = urlparse(next_url)
+        qs = parse_qs(parsed.query)
+        start_cursor = qs.get("start", [None])[0]
+        if not start_cursor:
+            break
+        params = {"from_created_at": cutoff_iso, "page_size": 100, "start": start_cursor}
+
+    # Build vendor name lookup from DB
+    db = get_db()
+    vendor_rows = db.execute("SELECT id, name FROM ramp_vendors").fetchall()
+    vendor_names = {r["id"]: r["name"] for r in vendor_rows}
+
+    if wipe:
+        db.execute("DELETE FROM ramp_bills")
+
+    import json as _json
+
+    count = 0
+    for bill in all_bills:
+        bill_id = bill.get("id", "")
+        if not bill_id:
+            continue
+
+        vendor_id = bill.get("vendor", {}).get("id", "") or bill.get("vendor_id", "")
+        vendor_name = bill.get("vendor", {}).get("name", "") or vendor_names.get(vendor_id, "")
+
+        amount_obj = bill.get("amount", {})
+        if isinstance(amount_obj, dict):
+            amount = float(amount_obj.get("amount", 0) or 0)
+            currency = amount_obj.get("currency_code", "USD")
+        else:
+            amount = float(amount_obj or 0)
+            currency = bill.get("currency", "USD")
+
+        line_items = bill.get("line_items", bill.get("line_items_data", []))
+
+        db.execute(
+            """INSERT OR REPLACE INTO ramp_bills
+               (id, vendor_id, vendor_name, amount, currency, due_at, issued_at, paid_at,
+                invoice_number, memo, status, approval_status, payment_status, payment_method,
+                line_items_json, ramp_url, synced_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                bill_id,
+                vendor_id,
+                vendor_name,
+                amount,
+                currency,
+                bill.get("due_at") or bill.get("due_date"),
+                bill.get("issued_at") or bill.get("invoice_date"),
+                bill.get("paid_at"),
+                bill.get("invoice_number") or bill.get("invoice_id"),
+                bill.get("memo", ""),
+                bill.get("status") or bill.get("status_summary", ""),
+                bill.get("approval_status", ""),
+                bill.get("payment_status", ""),
+                bill.get("payment_method", ""),
+                _json.dumps(line_items) if line_items else None,
+                bill.get("ramp_url") or bill.get("canonical_url"),
+                datetime.utcnow().isoformat(),
+            ),
+        )
+        count += 1
+
+    db.commit()
+    db.close()
+    logger.info("Ramp bills synced: %d (from %s, wipe=%s)", count, cutoff_iso, wipe)
+    return count
+
+
+def seed_projects_from_vendors() -> int:
+    """Create stub projects for vendors that have bills but no project yet. Idempotent."""
+    db = get_db()
+    # Find distinct vendor_ids in bills that have no matching project
+    rows = db.execute(
+        """SELECT DISTINCT b.vendor_id, b.vendor_name
+           FROM ramp_bills b
+           WHERE b.vendor_id != '' AND b.vendor_id IS NOT NULL
+             AND NOT EXISTS (
+               SELECT 1 FROM projects p WHERE p.vendor_id = b.vendor_id
+             )"""
+    ).fetchall()
+
+    count = 0
+    for row in rows:
+        vendor_id = row["vendor_id"]
+        vendor_name = row["vendor_name"] or vendor_id
+        db.execute(
+            """INSERT OR IGNORE INTO projects (name, vendor_id, budget_amount, status)
+               VALUES (?, ?, 0, 'active')""",
+            (vendor_name, vendor_id),
+        )
+        count += 1
+
+    db.commit()
+    db.close()
+    logger.info("Seeded %d projects from Ramp vendors", count)
     return count
 
 

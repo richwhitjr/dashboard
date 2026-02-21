@@ -35,9 +35,9 @@ SYSTEM_PROMPT = (
     "Run /rich-persona for the full detailed persona and team context."
 )
 
-# Track the active Claude child process so we can kill it before starting a new one
-_active_child: int | None = None
-_active_lock = asyncio.Lock()
+MAX_CONCURRENT = 5
+_active_sessions: set[int] = set()  # PIDs of active child processes
+_sessions_lock = asyncio.Lock()
 
 
 async def _kill_and_wait(pid: int, timeout: float = 3.0):
@@ -69,15 +69,13 @@ async def _kill_and_wait(pid: int, timeout: float = 3.0):
 
 @router.websocket("/ws/claude")
 async def claude_terminal(ws: WebSocket):
-    global _active_child
     await ws.accept()
 
-    # Kill any previous Claude process before starting a new one
-    async with _active_lock:
-        if _active_child is not None:
-            logger.info(f"Killing previous Claude process {_active_child}")
-            await _kill_and_wait(_active_child)
-            _active_child = None
+    # Check concurrent session limit
+    async with _sessions_lock:
+        if len(_active_sessions) >= MAX_CONCURRENT:
+            await ws.close(code=4429, reason="Too many concurrent sessions")
+            return
 
     # Fork a PTY running claude
     child_pid, fd = pty.fork()
@@ -91,8 +89,10 @@ async def claude_terminal(ws: WebSocket):
         os.execlp("claude", "claude", "--system-prompt", SYSTEM_PROMPT)
         # execlp never returns
 
-    # Parent process — relay between WebSocket and PTY
-    _active_child = child_pid
+    # Parent process — register and relay between WebSocket and PTY
+    async with _sessions_lock:
+        _active_sessions.add(child_pid)
+
     loop = asyncio.get_event_loop()
 
     # Set initial terminal size
@@ -144,7 +144,6 @@ async def claude_terminal(ws: WebSocket):
             os.close(fd)
         except OSError:
             pass
-        # Clean up the child process
-        if _active_child == child_pid:
-            await _kill_and_wait(child_pid)
-            _active_child = None
+        await _kill_and_wait(child_pid)
+        async with _sessions_lock:
+            _active_sessions.discard(child_pid)

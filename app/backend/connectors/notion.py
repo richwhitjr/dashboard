@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 NOTION_API_BASE = "https://api.notion.com/v1"
 SNIPPET_MAX_CHARS = 500
-SNIPPET_TOP_N = 30  # Only fetch content snippets for top-scored pages
+SNIPPET_TOP_N = 10  # Only fetch content snippets for top-scored pages
 
 
 def _get_token() -> str:
@@ -269,7 +269,7 @@ def _extract_page_data(page: dict) -> dict:
     }
 
 
-def sync_notion_pages(limit: int = 500) -> int:
+def sync_notion_pages(limit: int = 50) -> int:
     if not HAS_HTTPX:
         raise ImportError("httpx not installed")
 
@@ -321,8 +321,6 @@ def sync_notion_pages(limit: int = 500) -> int:
         logger.info(f"Fetched snippets for top {min(SNIPPET_TOP_N, len(scored_pages))} pages")
 
     # Insert all pages into DB
-    db.execute("DELETE FROM notion_pages")
-
     for p in pages:
         score_data = scores_by_id.get(p["id"], {})
         score = min(1.0, max(0.0, float(score_data.get("score", 0))))

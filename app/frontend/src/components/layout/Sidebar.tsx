@@ -1,9 +1,21 @@
-import { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useEmployees, useSync, useSyncStatus, useAuthStatus, useCreateEmployee, useDeleteEmployee } from '../../api/hooks';
 import type { SyncSourceInfo } from '../../api/types';
 
+function formatTimeAgo(iso: string) {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
 export function Sidebar() {
+  const { pathname } = useLocation();
+  const onRampPage = pathname.startsWith('/ramp');
   const { data: employees } = useEmployees();
   const sync = useSync();
   const { data: syncStatus } = useSyncStatus();
@@ -14,6 +26,37 @@ export function Sidebar() {
   const [addingTo, setAddingTo] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [syncStartedAt, setSyncStartedAt] = useState<string | null>(null);
+  const prevRunningRef = useRef(false);
+
+  useEffect(() => {
+    const isRunning = syncStatus?.running ?? false;
+    if (!prevRunningRef.current && isRunning) {
+      setSyncStartedAt(new Date().toISOString());
+    } else if (prevRunningRef.current && !isRunning) {
+      setSyncStartedAt(null);
+    }
+    prevRunningRef.current = isRunning;
+  }, [syncStatus?.running]);
+
+  const lastSyncedAt = (() => {
+    if (!syncStatus?.sources) return null;
+    const timestamps = Object.values(syncStatus.sources)
+      .map((s) => s.last_sync_at)
+      .filter(Boolean);
+    if (!timestamps.length) return null;
+    return timestamps.reduce((a, b) => (a > b ? a : b));
+  })();
+
+  function getSourceStatus(info: { last_sync_at: string; last_sync_status: string }) {
+    if (syncStatus?.running) {
+      if (syncStartedAt && info.last_sync_at > syncStartedAt) {
+        return info.last_sync_status === 'success' ? 'done' : 'error';
+      }
+      return 'running';
+    }
+    return info.last_sync_status === 'success' ? 'done' : 'error';
+  }
 
   const toggleExpand = (id: string) => {
     setExpanded((prev) => {
@@ -96,7 +139,11 @@ export function Sidebar() {
           <NavLink to="/github">GitHub</NavLink>
           <NavLink to="/slack">Slack</NavLink>
           <NavLink to="/notion">Notion</NavLink>
-          <NavLink to="/ramp">Ramp</NavLink>
+          <NavLink to="/ramp" end>Ramp</NavLink>
+          {onRampPage && <>
+            <NavLink to="/ramp/bills" className="sidebar-sub-link">Bills</NavLink>
+            <NavLink to="/ramp/projects" className="sidebar-sub-link">Projects</NavLink>
+          </>}
         </nav>
 
         <div className="sidebar-section-label">tools</div>
@@ -228,20 +275,34 @@ export function Sidebar() {
             <span className={`sync-icon ${sync.isPending ? 'syncing' : ''}`}>
               &#x21bb;
             </span>
-            {sync.isPending ? 'Syncing...' : 'Refresh'}
+            {sync.isPending ? 'Syncing...' : <><span>Refresh</span><kbd style={{ marginLeft: 6, opacity: 0.5 }}>s</kbd></>}
           </button>
+          {!sync.isPending && lastSyncedAt && (
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', marginTop: 4 }}>
+              synced {formatTimeAgo(lastSyncedAt)}
+            </div>
+          )}
         </div>
 
         {syncStatus?.sources && Object.keys(syncStatus.sources).length > 0 && (
           <div className="sync-status">
-            {Object.entries(syncStatus.sources).map(([source, info]) => (
-              <div key={source} className="sync-source">
-                <span>{source}</span>
-                <span className={info.last_sync_status === 'success' ? 'status-ok' : 'status-error'}>
-                  {info.last_sync_status === 'success' ? '\u2713' : '\u2717'}
-                </span>
-              </div>
-            ))}
+            {Object.entries(syncStatus.sources).map(([source, info]) => {
+              const status = getSourceStatus(info);
+              return (
+                <div key={source} className="sync-source">
+                  <span>{source}</span>
+                  {status === 'running' ? (
+                    <svg className="sync-icon syncing" width="10" height="10" viewBox="0 0 14 14" style={{ display: 'inline-block' }}>
+                      <circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="20 14" />
+                    </svg>
+                  ) : (
+                    <span className={status === 'done' ? 'status-ok' : 'status-error'}>
+                      {status === 'done' ? '\u2713' : '\u2717'}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

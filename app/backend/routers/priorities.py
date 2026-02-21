@@ -75,24 +75,44 @@ def _build_context(db) -> dict:
         ).fetchall()
     ]
 
+    # Bills needing attention: overdue, large, or pending approval
+    ramp_bills_notable = [
+        dict(r)
+        for r in db.execute(
+            """SELECT vendor_name, amount, currency, due_at, status, approval_status, invoice_number, memo
+               FROM ramp_bills
+               WHERE (
+                 (due_at < datetime('now')
+                  AND payment_status NOT IN ('PAID','PAYMENT_COMPLETED')
+                  AND payment_status != '')
+                 OR approval_status = 'PENDING'
+                 OR amount >= 10000
+               )
+               AND payment_status NOT IN ('PAID','PAYMENT_COMPLETED')
+               ORDER BY amount DESC
+               LIMIT 15"""
+        ).fetchall()
+    ]
+
     return {
         "calendar_today": calendar_today,
         "meetings_upcoming": meetings_upcoming,
         "emails_recent": emails_recent,
         "slack_recent": slack_recent,
         "open_notes": open_notes,
+        "ramp_bills_notable": ramp_bills_notable,
     }
 
 
 SYSTEM_PROMPT = """\
 You are a morning briefing assistant for Rich, the CTO of Osmo. Your job is to analyze \
-his Slack messages, emails, calendar, and open notes and identify up to 25 important \
+his Slack messages, emails, calendar, open notes, and Ramp bills and identify up to 25 important \
 items he should focus on today.
 
 For each item, provide:
 - A short title (max 10 words)
 - A one-sentence reason why it matters or what action to take
-- The source: "slack", "email", "calendar", or "note"
+- The source: "slack", "email", "calendar", "note", or "ramp"
 - An urgency level: "high", "medium", or "low"
 
 Prioritize:
@@ -102,11 +122,13 @@ Prioritize:
 4. Threads where Rich was asked a question or tagged
 5. Open notes/tasks that are due or high priority
 6. Anything that looks time-sensitive or blocking someone
+7. Ramp bills that are overdue, pending approval, or unusually large (>$10k)
 
 Ignore and never surface:
 - Marketing, promotional, or newsletter emails
 - Automated notifications (build alerts, billing receipts, subscription confirmations)
 - Mass mailing list messages that don't require a personal reply
+- Ramp bills that are already paid
 
 Be concise and actionable. Focus on what Rich should DO, not just what happened.
 

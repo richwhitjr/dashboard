@@ -8,7 +8,7 @@ import {
   useEmployees,
   useSearchMeetings,
 } from '../api/hooks';
-import type { Issue, MeetingSearchResult } from '../api/types';
+import type { Employee, Issue, MeetingSearchResult } from '../api/types';
 import { parseIssuePrefix } from '../utils/parseIssuePrefix';
 import { detectEmployees } from '../utils/detectEmployees';
 import { useMentionAutocomplete } from '../hooks/useMentionAutocomplete';
@@ -39,7 +39,7 @@ function IssueItem({
   onToggleExpand: () => void;
   onUpdate: (update: Partial<Issue> & { employee_ids?: string[]; meeting_ids?: { ref_type: string; ref_id: string }[] }) => void;
   onDelete: () => void;
-  employees: { id: string; name: string }[] | undefined;
+  employees: Employee[] | undefined;
   itemRef?: (el: HTMLDivElement | null) => void;
   titleInputRef?: (el: HTMLInputElement | null) => void;
 }) {
@@ -55,7 +55,7 @@ function IssueItem({
   }, [issue.title, issue.description]);
 
   // Mention autocomplete for adding people
-  const mention = useMentionAutocomplete(employees as any);
+  const mention = useMentionAutocomplete(employees);
   const [addPersonText, setAddPersonText] = useState('');
   const addPersonDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -68,6 +68,7 @@ function IssueItem({
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mention.isOpen, mention.dismiss]);
 
   // Auto-save title on blur
@@ -88,9 +89,9 @@ function IssueItem({
   };
 
   // Immediate-save property changes
-  const handleSizeClick = (s: string) => onUpdate({ tshirt_size: s } as any);
+  const handleSizeClick = (s: Issue['tshirt_size']) => onUpdate({ tshirt_size: s });
   const handlePriorityClick = (p: number) => onUpdate({ priority: p });
-  const handleStatusClick = (status: string) => onUpdate({ status } as any);
+  const handleStatusClick = (status: Issue['status']) => onUpdate({ status });
 
   const handleAddPerson = (empId: string) => {
     const currentIds = issue.employees.map((e) => e.id);
@@ -320,7 +321,7 @@ export function IssuesPage() {
   const detected = employees ? detectEmployees(text, employees) : { employees: [], isOneOnOne: false };
   const parsed = useMemo(() => parseIssuePrefix(text.trim()), [text]);
 
-  const allIssues = issues ?? [];
+  const allIssues = useMemo(() => issues ?? [], [issues]);
 
   // Keep focusedIndex in bounds when list changes
   useEffect(() => {
@@ -358,7 +359,7 @@ export function IssuesPage() {
         setStatusFilter('');
       }
     }
-  }, [searchParams, issues, statusFilter]);
+  }, [searchParams, issues, statusFilter, setSearchParams]);
 
   // Dismiss mention on outside click
   useEffect(() => {
@@ -370,6 +371,7 @@ export function IssuesPage() {
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mention.isOpen, mention.dismiss]);
 
   // Keyboard shortcuts for issues
@@ -441,7 +443,7 @@ export function IssuesPage() {
           const issue = getFocused();
           if (issue) {
             e.preventDefault();
-            updateIssue.mutate({ id: issue.id, status: issue.status === 'done' ? 'open' : 'done' } as any);
+            updateIssue.mutate({ id: issue.id, status: issue.status === 'done' ? 'open' : 'done' });
           }
           break;
         }
@@ -463,14 +465,14 @@ export function IssuesPage() {
           e.preventDefault();
           if (e.shiftKey) {
             // Shift+Left: smaller size
-            const idx = SIZES.indexOf(issue.tshirt_size as typeof SIZES[number]);
+            const idx = SIZES.indexOf(issue.tshirt_size);
             if (idx > 0) {
-              updateIssue.mutate({ id: issue.id, tshirt_size: SIZES[idx - 1] } as any);
+              updateIssue.mutate({ id: issue.id, tshirt_size: SIZES[idx - 1] });
             }
           } else {
             // Left: higher priority (lower P number)
             if (issue.priority > 0) {
-              updateIssue.mutate({ id: issue.id, priority: issue.priority - 1 } as any);
+              updateIssue.mutate({ id: issue.id, priority: issue.priority - 1 });
             }
           }
           break;
@@ -481,14 +483,14 @@ export function IssuesPage() {
           e.preventDefault();
           if (e.shiftKey) {
             // Shift+Right: larger size
-            const idx = SIZES.indexOf(issue.tshirt_size as typeof SIZES[number]);
+            const idx = SIZES.indexOf(issue.tshirt_size);
             if (idx < SIZES.length - 1) {
-              updateIssue.mutate({ id: issue.id, tshirt_size: SIZES[idx + 1] } as any);
+              updateIssue.mutate({ id: issue.id, tshirt_size: SIZES[idx + 1] });
             }
           } else {
             // Right: lower priority (higher P number)
             if (issue.priority < 3) {
-              updateIssue.mutate({ id: issue.id, priority: issue.priority + 1 } as any);
+              updateIssue.mutate({ id: issue.id, priority: issue.priority + 1 });
             }
           }
           break;
@@ -625,7 +627,7 @@ export function IssuesPage() {
                 setFocusedIndex(idx);
                 setExpandedId(expandedId === issue.id ? null : issue.id);
               }}
-              onUpdate={(update) => updateIssue.mutate({ id: issue.id, ...update } as any)}
+              onUpdate={(update) => updateIssue.mutate({ id: issue.id, ...update })}
               onDelete={() => { deleteIssue.mutate(issue.id); setExpandedId(null); }}
               employees={employees}
               itemRef={(el) => { itemRefs.current.set(issue.id, el); }}
