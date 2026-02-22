@@ -27,7 +27,7 @@ class EmployeeCreate(BaseModel):
     name: str
     title: Optional[str] = None
     reports_to: Optional[str] = None
-    group_name: str = "team"  # 'exec', 'team', 'external'
+    group_name: str = "team"  # free-form group name; "team" is the default
     email: Optional[str] = None
 
 
@@ -89,3 +89,15 @@ class ClaudeSessionCreate(BaseModel):
 
 class ClaudeSessionUpdate(BaseModel):
     title: Optional[str] = None
+
+
+class PersonaCreate(BaseModel):
+    name: str
+    description: str = ""
+    system_prompt: str = ""
+
+
+class PersonaUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    system_prompt: Optional[str] = None

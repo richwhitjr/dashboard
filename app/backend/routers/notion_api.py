@@ -8,7 +8,8 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from database import get_db
+from app_config import get_prompt_context, get_secret
+from database import get_db_connection, get_write_db
 from utils.notion_blocks import blocks_to_text
 
 router = APIRouter(prefix="/api/notion", tags=["notion"])
@@ -201,22 +202,25 @@ def get_page_content(page_id: str):
 
 # --- Gemini-ranked Notion pages ---
 
-_NOTION_RANK_PROMPT = """\
-You are a priority-ranking assistant for Rich, the CTO of Osmo. You will receive a list of \
-recently edited Notion pages. Your job is to rank them by importance/relevance for Rich.
+
+def _build_notion_rank_prompt() -> str:
+    ctx = get_prompt_context()
+    return f"""\
+You are a priority-ranking assistant {ctx}. You will receive a list of \
+recently edited Notion pages. Your job is to rank them by importance/relevance for the user.
 
 For each page, assign a priority_score from 1-10 where:
-- 10: Critical docs Rich needs to review now (active project specs, decisions pending, launch docs)
+- 10: Critical docs the user needs to review now (active project specs, decisions pending, launch docs)
 - 7-9: High priority (roadmaps, team docs being actively worked on, meeting notes from key meetings)
 - 4-6: Medium (reference docs, process pages, templates being updated)
 - 1-3: Low (old/stale pages, personal notes from others, automated/bot edits)
 
 Consider:
 1. Pages edited very recently are more relevant
-2. Pages Rich edited himself are high priority (his active work)
+2. Pages the user edited themselves are high priority (their active work)
 3. Product specs, roadmaps, and strategy docs are important
 4. Meeting notes and 1:1 docs are valuable context
-5. Pages with relevance reasons indicating Rich's involvement score higher
+5. Pages with relevance reasons indicating the user's involvement score higher
 
 Return ONLY valid JSON — an array of objects with keys: id, priority_score, reason (one short sentence).
 Order by priority_score descending. Return ALL pages provided, scored."""
@@ -224,7 +228,7 @@ Order by priority_score descending. Return ALL pages provided, scored."""
 
 def _rank_notion_with_gemini(pages: list[dict]) -> list[dict]:
     """Call Gemini to rank Notion pages by priority."""
-    api_key = os.environ.get("GEMINI_API_KEY", "")
+    api_key = get_secret("GEMINI_API_KEY") or ""
     if not api_key:
         return []
 
@@ -238,7 +242,7 @@ def _rank_notion_with_gemini(pages: list[dict]) -> list[dict]:
         model="gemini-2.0-flash",
         contents=user_message,
         config={
-            "system_instruction": _NOTION_RANK_PROMPT,
+            "system_instruction": _build_notion_rank_prompt(),
             "temperature": 0.2,
             "response_mime_type": "application/json",
         },
@@ -261,37 +265,35 @@ def _dismissed_notion_ids(db) -> set[str]:
 @router.get("/prioritized")
 def get_prioritized_notion(refresh: bool = Query(False), days: int = Query(7, ge=1, le=90)):
     """Return top 50 Notion pages ranked by Gemini priority score."""
-    db = get_db()
-    dismissed = _dismissed_notion_ids(db)
-    cutoff = f"-{days} days"
+    with get_db_connection(readonly=True) as db:
+        dismissed = _dismissed_notion_ids(db)
+        cutoff = f"-{days} days"
 
-    # Check cache first
-    if not refresh:
-        cached = db.execute(
-            "SELECT data_json, generated_at FROM cached_notion_priorities ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        if cached:
-            data = json.loads(cached["data_json"])
-            data["items"] = [
-                item
-                for item in data.get("items", [])
-                if item["id"] not in dismissed and (item.get("last_edited_time") or "") >= _iso_cutoff(days)
-            ]
-            db.close()
-            return data
+        # Check cache first
+        if not refresh:
+            cached = db.execute(
+                "SELECT data_json, generated_at FROM cached_notion_priorities ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            if cached:
+                data = json.loads(cached["data_json"])
+                data["items"] = [
+                    item
+                    for item in data.get("items", [])
+                    if item["id"] not in dismissed and (item.get("last_edited_time") or "") >= _iso_cutoff(days)
+                ]
+                return data
 
-    # Fetch recent pages from DB
-    rows = db.execute(
-        "SELECT id, title, url, last_edited_time, last_edited_by, snippet, "
-        "relevance_score, relevance_reason "
-        "FROM notion_pages "
-        "WHERE last_edited_time >= datetime('now', ?) "
-        "ORDER BY last_edited_time DESC LIMIT 100",
-        (cutoff,),
-    ).fetchall()
+        # Fetch recent pages from DB
+        rows = db.execute(
+            "SELECT id, title, url, last_edited_time, last_edited_by, snippet, "
+            "relevance_score, relevance_reason "
+            "FROM notion_pages "
+            "WHERE last_edited_time >= datetime('now', ?) "
+            "ORDER BY last_edited_time DESC LIMIT 100",
+            (cutoff,),
+        ).fetchall()
 
     if not rows:
-        db.close()
         return {"items": [], "error": "No Notion pages synced yet"}
 
     pages_for_llm = [
@@ -309,7 +311,6 @@ def get_prioritized_notion(refresh: bool = Query(False), days: int = Query(7, ge
     try:
         ranked = _rank_notion_with_gemini(pages_for_llm)
     except Exception as e:
-        db.close()
         return {"items": [], "error": str(e)}
 
     # Build lookup of full page data
@@ -343,12 +344,12 @@ def get_prioritized_notion(refresh: bool = Query(False), days: int = Query(7, ge
     result = {"items": items}
 
     # Cache result
-    db.execute("DELETE FROM cached_notion_priorities")
-    db.execute(
-        "INSERT INTO cached_notion_priorities (data_json) VALUES (?)",
-        (json.dumps(result),),
-    )
-    db.commit()
-    db.close()
+    with get_write_db() as db:
+        db.execute("DELETE FROM cached_notion_priorities")
+        db.execute(
+            "INSERT INTO cached_notion_priorities (data_json) VALUES (?)",
+            (json.dumps(result),),
+        )
+        db.commit()
 
     return result

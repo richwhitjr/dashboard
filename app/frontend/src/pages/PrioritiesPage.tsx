@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react';
-import { usePriorities, useRefreshPriorities, useDismissPriority } from '../api/hooks';
+import { Link } from 'react-router-dom';
+import { usePriorities, useRefreshPriorities, useDismissPriority, useConnectors } from '../api/hooks';
 import { useFocusNavigation } from '../hooks/useFocusNavigation';
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -14,6 +15,8 @@ export function PrioritiesPage() {
   const { data: priorities, isLoading } = usePriorities();
   const refreshPriorities = useRefreshPriorities();
   const dismissPriority = useDismissPriority();
+  const { data: connectors } = useConnectors();
+  const geminiEnabled = connectors?.some(c => c.id === 'gemini' && c.enabled) ?? false;
 
   const items = useMemo(() => priorities?.items ?? [], [priorities]);
 
@@ -57,10 +60,17 @@ export function PrioritiesPage() {
         <p className="empty-state">Analyzing your morning...</p>
       )}
       {priorities?.error && (
-        <p className="empty-state">Could not load priorities: {priorities.error}</p>
+        <p className="empty-state">
+          Could not load priorities. Check your Gemini API key in{' '}
+          <Link to="/settings">Settings</Link>.
+        </p>
       )}
       {!isLoading && !priorities?.error && items.length === 0 && (
-        <p className="empty-state">No priorities — add a GEMINI_API_KEY to enable</p>
+        <p className="empty-state">
+          {geminiEnabled
+            ? 'No priorities generated yet. Try refreshing.'
+            : <>Enable Gemini AI in <Link to="/settings">Settings</Link> to get AI-powered priorities.</>}
+        </p>
       )}
       {items.map((item, i) => (
         <div key={i} className={`priority-item priority-urgency-${item.urgency}`}>

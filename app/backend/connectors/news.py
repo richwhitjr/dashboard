@@ -2,8 +2,8 @@
 
 Extracts article/paper links from:
 1. Slack messages (URLs shared in channels and DMs)
-2. Emails from Osmo colleagues (links in subject/snippet)
-3. Web search for topics relevant to a CTO at a Series B chemical/scent tech company
+2. Emails from colleagues (links in subject/snippet)
+3. Web search for topics relevant to the user's role and company
 """
 
 import hashlib
@@ -12,12 +12,11 @@ import traceback
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
-from database import get_db
+from database import batch_upsert, get_db_connection, get_write_db
 
-# Domains to skip — internal tools, not articles
-SKIP_DOMAINS = {
+# Default domains to skip — internal tools, not articles
+_DEFAULT_SKIP_DOMAINS = {
     "slack.com",
-    "osmo.ai",
     "docs.google.com",
     "drive.google.com",
     "meet.google.com",
@@ -33,6 +32,21 @@ SKIP_DOMAINS = {
     "confluence.atlassian.com",
     "localhost",
 }
+
+
+def _get_skip_domains() -> set[str]:
+    """Return the set of domains to skip, including profile-configured ones."""
+    from app_config import get_profile
+
+    profile = get_profile()
+    extra = profile.get("skip_domains", [])
+    domains = set(_DEFAULT_SKIP_DOMAINS)
+    if isinstance(extra, list):
+        for d in extra:
+            if isinstance(d, str) and d.strip():
+                domains.add(d.strip())
+    return domains
+
 
 # Domains that are likely articles/papers
 ARTICLE_DOMAINS = {
@@ -102,7 +116,8 @@ def _should_include(url: str) -> bool:
     if not domain:
         return False
     # Skip internal tool domains
-    for skip in SKIP_DOMAINS:
+    skip_domains = _get_skip_domains()
+    for skip in skip_domains:
         if domain == skip or domain.endswith("." + skip):
             return False
     # Skip file extensions that aren't articles
@@ -143,85 +158,103 @@ def _title_from_url(url: str) -> str:
 
 def _extract_urls_from_slack() -> list[dict]:
     """Pull article URLs from synced Slack messages."""
-    db = get_db()
-    items = []
-    try:
+    with get_db_connection(readonly=True) as db:
         rows = db.execute(
             "SELECT id, text, user_name, ts, channel_name FROM slack_messages ORDER BY ts DESC"
         ).fetchall()
-        for row in rows:
-            text = row["text"] or ""
-            urls = URL_PATTERN.findall(text)
-            for raw_url in urls:
-                url = _clean_url(raw_url)
-                if not _should_include(url):
-                    continue
-                ts = row["ts"]
-                try:
-                    published = datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat()
-                except (ValueError, TypeError, OSError):
-                    published = None
 
-                items.append(
-                    {
-                        "id": _make_id(url),
-                        "title": _title_from_url(url),
-                        "url": url,
-                        "source": "slack",
-                        "source_detail": f"{row['user_name']} in #{row['channel_name'] or 'DM'}",
-                        "domain": _extract_domain(url),
-                        "snippet": text[:300] if text else None,
-                        "published_at": published,
-                    }
-                )
-    finally:
-        db.close()
+    items = []
+    for row in rows:
+        text = row["text"] or ""
+        urls = URL_PATTERN.findall(text)
+        for raw_url in urls:
+            url = _clean_url(raw_url)
+            if not _should_include(url):
+                continue
+            ts = row["ts"]
+            try:
+                published = datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat()
+            except (ValueError, TypeError, OSError):
+                published = None
+
+            items.append(
+                {
+                    "id": _make_id(url),
+                    "title": _title_from_url(url),
+                    "url": url,
+                    "source": "slack",
+                    "source_detail": f"{row['user_name']} in #{row['channel_name'] or 'DM'}",
+                    "domain": _extract_domain(url),
+                    "snippet": text[:300] if text else None,
+                    "published_at": published,
+                }
+            )
     return items
 
 
 def _extract_urls_from_email() -> list[dict]:
-    """Pull article URLs from synced emails sent by Osmo people."""
-    db = get_db()
-    items = []
-    try:
+    """Pull article URLs from synced emails."""
+    with get_db_connection(readonly=True) as db:
         rows = db.execute(
             """SELECT id, subject, snippet, from_name, from_email, date, body_preview
                FROM emails ORDER BY date DESC"""
         ).fetchall()
-        for row in rows:
-            # Check snippet and body_preview for URLs
-            text = f"{row['subject'] or ''} {row['snippet'] or ''} {row['body_preview'] or ''}"
-            urls = URL_PATTERN.findall(text)
-            for raw_url in urls:
-                url = _clean_url(raw_url)
-                if not _should_include(url):
-                    continue
-                items.append(
-                    {
-                        "id": _make_id(url),
-                        "title": _title_from_url(url),
-                        "url": url,
-                        "source": "email",
-                        "source_detail": row["from_name"] or row["from_email"] or "Unknown",
-                        "domain": _extract_domain(url),
-                        "snippet": row["subject"],
-                        "published_at": row["date"],
-                    }
-                )
-    finally:
-        db.close()
+
+    items = []
+    for row in rows:
+        # Check snippet and body_preview for URLs
+        text = f"{row['subject'] or ''} {row['snippet'] or ''} {row['body_preview'] or ''}"
+        urls = URL_PATTERN.findall(text)
+        for raw_url in urls:
+            url = _clean_url(raw_url)
+            if not _should_include(url):
+                continue
+            items.append(
+                {
+                    "id": _make_id(url),
+                    "title": _title_from_url(url),
+                    "url": url,
+                    "source": "email",
+                    "source_detail": row["from_name"] or row["from_email"] or "Unknown",
+                    "domain": _extract_domain(url),
+                    "snippet": row["subject"],
+                    "published_at": row["date"],
+                }
+            )
     return items
+
+
+def _get_news_queries() -> list[str]:
+    """Return news search queries from the user profile, or sensible defaults."""
+    from app_config import get_profile
+
+    profile = get_profile()
+    custom_topics = profile.get("news_topics", [])
+    if isinstance(custom_topics, list) and custom_topics:
+        return [t for t in custom_topics if isinstance(t, str) and t.strip()]
+
+    # Build generic defaults from profile info
+    company = profile.get("user_company", "").strip()
+    title = profile.get("user_title", "").strip()
+    desc = profile.get("user_company_description", "").strip()
+
+    queries = []
+    if company and desc:
+        queries.append(f"{company} OR {desc}")
+    elif company:
+        queries.append(company)
+    if title:
+        queries.append(f"{title} leadership OR startup scaling")
+    if not queries:
+        queries.append("technology industry news")
+    return queries
 
 
 def _fetch_web_news() -> list[dict]:
     """Fetch relevant web news via Google News RSS feeds.
 
-    Topics relevant to a CTO of a Series B chemical/scent tech company:
-    - AI in chemistry / computational chemistry
-    - Digital olfaction / scent technology
-    - Series B / startup scaling
-    - Chemical industry tech
-    - Machine learning for molecules
+    Topics are driven by the user profile's news_topics setting,
+    or generated from the user's company/title/description.
     """
     items = []
     try:
@@ -230,12 +263,7 @@ def _fetch_web_news() -> list[dict]:
         return items
 
     # Google News RSS queries — no API key needed
-    queries = [
-        "digital olfaction OR scent technology OR smell AI",
-        "AI chemistry OR computational chemistry OR molecular design",
-        "chemical industry technology OR fragrance technology",
-        "Series B startup CTO OR startup scaling engineering",
-    ]
+    queries = _get_news_queries()
 
     for query in queries:
         try:
@@ -333,30 +361,29 @@ def sync_news() -> int:
             seen_urls.add(url)
             unique_items.append(item)
 
-    # Store in database — INSERT OR IGNORE so we don't overwrite existing entries
-    db = get_db()
-    count = 0
-    try:
-        for item in unique_items:
-            db.execute(
-                """INSERT OR IGNORE INTO news_items
-                   (id, title, url, source, source_detail, domain, snippet, published_at, synced_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    item["id"],
-                    item["title"],
-                    item["url"],
-                    item["source"],
-                    item.get("source_detail"),
-                    item.get("domain"),
-                    item.get("snippet"),
-                    item.get("published_at"),
-                    datetime.now().isoformat(),
-                ),
-            )
-            count += 1
-        db.commit()
-    finally:
-        db.close()
+    # Build rows and write in batches
+    rows = [
+        (
+            item["id"],
+            item["title"],
+            item["url"],
+            item["source"],
+            item.get("source_detail"),
+            item.get("domain"),
+            item.get("snippet"),
+            item.get("published_at"),
+            datetime.now().isoformat(),
+        )
+        for item in unique_items
+    ]
 
-    return count
+    with get_write_db() as db:
+        batch_upsert(
+            db,
+            """INSERT OR IGNORE INTO news_items
+               (id, title, url, source, source_detail, domain, snippet, published_at, synced_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows,
+        )
+
+    return len(rows)

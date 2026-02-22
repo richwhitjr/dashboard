@@ -32,7 +32,7 @@ When the backend starts (`main.py`), it automatically calls `init_db()` which ru
 
 ### Migration Files
 
-Migrations are located in `/Users/rich/osmo/rich/app/backend/alembic/versions/` and follow a chronological naming scheme:
+Migrations are located in `app/backend/alembic/versions/` and follow a chronological naming scheme:
 
 ```
 YYYYMMDD_HHMM_<revision>_<description>.py
@@ -143,10 +143,10 @@ If the `alembic_version` table is empty or out of sync after running migrations:
 
 ```bash
 # Check if version table is empty
-sqlite3 app/database/rich.db "SELECT * FROM alembic_version"
+sqlite3 ~/.personal-dashboard/dashboard.db "SELECT * FROM alembic_version"
 
 # If empty, manually stamp with the latest version
-sqlite3 app/database/rich.db "INSERT INTO alembic_version VALUES ('20250218_0000')"
+sqlite3 ~/.personal-dashboard/dashboard.db "INSERT INTO alembic_version VALUES ('20250218_0000')"
 
 # Verify
 make db-current
@@ -159,7 +159,7 @@ make db-current
 To start with a clean database:
 
 ```bash
-rm app/database/rich.db*
+rm ~/.personal-dashboard/dashboard.db*
 make db-migrate
 ```
 

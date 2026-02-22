@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { usePrioritizedEmail, useRefreshPrioritizedEmail, useDismissPrioritizedItem, useCreateIssue } from '../api/hooks';
 import { TimeAgo } from '../components/shared/TimeAgo';
 import { useFocusNavigation } from '../hooks/useFocusNavigation';
@@ -91,7 +92,9 @@ export function EmailPage() {
       </div>
 
       {isLoading && <p className="empty-state">Loading prioritized emails...</p>}
-      {data?.error && <p className="empty-state">Error: {data.error}</p>}
+      {data?.error && <p className="empty-state">
+        Gmail is not connected. Set up Google in <Link to="/settings">Settings</Link> to see your email.
+      </p>}
       {!isLoading && !data?.error && items.length === 0 && (
         <p className="empty-state">
           {hiddenCount > 0

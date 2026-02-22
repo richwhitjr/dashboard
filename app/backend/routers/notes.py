@@ -4,8 +4,11 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from database import get_db, rebuild_fts_table
+from database import get_db_connection, get_write_db, rebuild_fts_table
 from models import NoteCreate, NoteUpdate
+from utils.safe_sql import safe_update_query
+
+NOTE_ALLOWED_COLUMNS = {"text", "priority", "status", "employee_id", "is_one_on_one", "due_date"}
 
 router = APIRouter(prefix="/api/notes", tags=["notes"])
 
@@ -108,28 +111,28 @@ def list_notes(
     employee_id: Optional[str] = Query(None),
     is_one_on_one: Optional[bool] = Query(None),
 ):
-    db = get_db()
+    with get_db_connection(readonly=True) as db:
+        if employee_id:
+            # Filter via junction table
+            query = (
+                "SELECT DISTINCT t.* FROM notes t JOIN note_employees ne ON t.id = ne.note_id WHERE ne.employee_id = ?"
+            )
+            params: list = [employee_id]
+        else:
+            query = "SELECT t.* FROM notes t WHERE 1=1"
+            params = []
 
-    if employee_id:
-        # Filter via junction table
-        query = "SELECT DISTINCT t.* FROM notes t JOIN note_employees ne ON t.id = ne.note_id WHERE ne.employee_id = ?"
-        params: list = [employee_id]
-    else:
-        query = "SELECT t.* FROM notes t WHERE 1=1"
-        params = []
+        if status:
+            query += " AND t.status = ?"
+            params.append(status)
+        if is_one_on_one is not None:
+            query += " AND t.is_one_on_one = ?"
+            params.append(int(is_one_on_one))
 
-    if status:
-        query += " AND t.status = ?"
-        params.append(status)
-    if is_one_on_one is not None:
-        query += " AND t.is_one_on_one = ?"
-        params.append(int(is_one_on_one))
+        query += " ORDER BY t.status ASC, t.is_one_on_one DESC, t.priority DESC, t.created_at DESC"
 
-    query += " ORDER BY t.status ASC, t.is_one_on_one DESC, t.priority DESC, t.created_at DESC"
-
-    rows = db.execute(query, params).fetchall()
-    result = [_note_to_dict(db, r) for r in rows]
-    db.close()
+        rows = db.execute(query, params).fetchall()
+        result = [_note_to_dict(db, r) for r in rows]
     return result
 
 
@@ -154,8 +157,6 @@ def _parse_issue_prefix(text: str) -> dict | None:
 
 @router.post("")
 def create_note(note: NoteCreate):
-    db = get_db()
-
     # Intercept [i] prefix → create an issue instead
     parsed = _parse_issue_prefix(note.text)
     if parsed:
@@ -164,10 +165,10 @@ def create_note(note: NoteCreate):
 
         employee_ids = note.employee_ids or []
         if not employee_ids:
-            detected = _resolve_mentions(parsed["title"], db)
+            with get_db_connection(readonly=True) as db:
+                detected = _resolve_mentions(parsed["title"], db)
             if detected:
                 employee_ids = detected
-        db.close()
         issue = IssueCreate(
             title=parsed["title"],
             priority=parsed["priority"],
@@ -178,95 +179,95 @@ def create_note(note: NoteCreate):
         result["_type"] = "issue"
         return result
 
-    note = _resolve_one_on_one(note, db)
+    with get_write_db() as db:
+        note = _resolve_one_on_one(note, db)
 
-    # Resolve employee_ids: explicit list > @mention detection > single employee_id
-    employee_ids = note.employee_ids or []
-    if not employee_ids and not note.text.startswith("[1]"):
-        # Try to detect @mentions from the text
-        detected = _resolve_mentions(note.text, db)
-        if detected:
-            employee_ids = detected
-    if not employee_ids and note.employee_id:
-        employee_ids = [note.employee_id]
+        # Resolve employee_ids: explicit list > @mention detection > single employee_id
+        employee_ids = note.employee_ids or []
+        if not employee_ids and not note.text.startswith("[1]"):
+            # Try to detect @mentions from the text
+            detected = _resolve_mentions(note.text, db)
+            if detected:
+                employee_ids = detected
+        if not employee_ids and note.employee_id:
+            employee_ids = [note.employee_id]
 
-    primary_id = employee_ids[0] if employee_ids else note.employee_id
+        primary_id = employee_ids[0] if employee_ids else note.employee_id
 
-    cursor = db.execute(
-        "INSERT INTO notes (text, priority, employee_id, is_one_on_one, due_date) VALUES (?, ?, ?, ?, ?)",
-        (note.text, note.priority, primary_id, int(note.is_one_on_one), note.due_date),
-    )
-    note_id = cursor.lastrowid
-
-    # Insert junction table rows
-    for eid in employee_ids:
-        db.execute(
-            "INSERT OR IGNORE INTO note_employees (note_id, employee_id) VALUES (?, ?)",
-            (note_id, eid),
+        cursor = db.execute(
+            "INSERT INTO notes (text, priority, employee_id, is_one_on_one, due_date) VALUES (?, ?, ?, ?, ?)",
+            (note.text, note.priority, primary_id, int(note.is_one_on_one), note.due_date),
         )
+        note_id = cursor.lastrowid
 
-    db.commit()
-    row = db.execute("SELECT * FROM notes WHERE id = ?", (note_id,)).fetchone()
-    result = _note_to_dict(db, row)
-    db.close()
+        # Insert junction table rows
+        for eid in employee_ids:
+            db.execute(
+                "INSERT OR IGNORE INTO note_employees (note_id, employee_id) VALUES (?, ?)",
+                (note_id, eid),
+            )
+
+        db.commit()
+        row = db.execute("SELECT * FROM notes WHERE id = ?", (note_id,)).fetchone()
+        result = _note_to_dict(db, row)
     rebuild_fts_table("fts_notes")
     return result
 
 
 @router.patch("/{note_id}")
 def update_note(note_id: int, update: NoteUpdate):
-    db = get_db()
-    existing = db.execute("SELECT * FROM notes WHERE id = ?", (note_id,)).fetchone()
-    if not existing:
-        raise HTTPException(status_code=404, detail="Note not found")
+    with get_write_db() as db:
+        existing = db.execute("SELECT * FROM notes WHERE id = ?", (note_id,)).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Note not found")
 
-    # Handle employee_ids update via junction table
-    new_employee_ids = update.employee_ids
+        # Handle employee_ids update via junction table
+        new_employee_ids = update.employee_ids
 
-    fields = []
-    params = []
-    for field, value in update.model_dump(exclude_unset=True).items():
-        if field == "employee_ids":
-            continue  # Handled separately via junction table
-        if field == "is_one_on_one" and value is not None:
-            value = int(value)
-        fields.append(f"{field} = ?")
-        params.append(value)
+        update_fields = {}
+        for field, value in update.model_dump(exclude_unset=True).items():
+            if field == "employee_ids":
+                continue  # Handled separately via junction table
+            if field == "is_one_on_one" and value is not None:
+                value = int(value)
+            update_fields[field] = value
 
-    # Auto-set completed_at when marking done
-    if update.status == "done" and existing["status"] != "done":
-        fields.append("completed_at = ?")
-        params.append(datetime.now().isoformat())
-    elif update.status and update.status != "done":
-        fields.append("completed_at = ?")
-        params.append(None)
+        # Auto-set completed_at when marking done
+        extra = []
+        extra_params = []
+        if update.status == "done" and existing["status"] != "done":
+            extra.append("completed_at = ?")
+            extra_params.append(datetime.now().isoformat())
+        elif update.status and update.status != "done":
+            extra.append("completed_at = ?")
+            extra_params.append(None)
 
-    if fields:
-        params.append(note_id)
-        db.execute(f"UPDATE notes SET {', '.join(fields)} WHERE id = ?", params)
+        if update_fields:
+            set_clause, params = safe_update_query("notes", update_fields, NOTE_ALLOWED_COLUMNS, extra)
+            params.extend(extra_params)
+            params.append(note_id)
+            db.execute(f"UPDATE notes SET {set_clause} WHERE id = ?", params)
 
-    # Update junction table if employee_ids provided
-    if new_employee_ids is not None:
-        _set_note_employees(db, note_id, new_employee_ids)
-        # Also update primary employee_id for backward compat
-        primary = new_employee_ids[0] if new_employee_ids else None
-        db.execute("UPDATE notes SET employee_id = ? WHERE id = ?", (primary, note_id))
+        # Update junction table if employee_ids provided
+        if new_employee_ids is not None:
+            _set_note_employees(db, note_id, new_employee_ids)
+            # Also update primary employee_id for backward compat
+            primary = new_employee_ids[0] if new_employee_ids else None
+            db.execute("UPDATE notes SET employee_id = ? WHERE id = ?", (primary, note_id))
 
-    db.commit()
+        db.commit()
 
-    row = db.execute("SELECT * FROM notes WHERE id = ?", (note_id,)).fetchone()
-    result = _note_to_dict(db, row)
-    db.close()
+        row = db.execute("SELECT * FROM notes WHERE id = ?", (note_id,)).fetchone()
+        result = _note_to_dict(db, row)
     rebuild_fts_table("fts_notes")
     return result
 
 
 @router.delete("/{note_id}")
 def delete_note(note_id: int):
-    db = get_db()
-    # Junction table rows cleaned up by ON DELETE CASCADE
-    db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
-    db.commit()
-    db.close()
+    with get_write_db() as db:
+        # Junction table rows cleaned up by ON DELETE CASCADE
+        db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+        db.commit()
     rebuild_fts_table("fts_notes")
     return {"ok": True}

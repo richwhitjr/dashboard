@@ -3,6 +3,6 @@ backend/.env
 backend/.google_token.json
 backend/__pycache__/
 backend/**/__pycache__/
-database/rich.db
+database/*.db
 frontend/node_modules/
 frontend/dist/

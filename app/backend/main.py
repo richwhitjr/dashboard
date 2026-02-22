@@ -19,7 +19,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
 
+from connectors.registry import init_registry
 from database import init_db
 from routers import (
     auth,
@@ -35,7 +39,9 @@ from routers import (
     news,
     notes,
     notion_api,
+    personas,
     priorities,
+    profile,
     projects_api,
     ramp_api,
     search,
@@ -45,14 +51,35 @@ from routers import (
 from routers.sync import sync_granola, sync_meeting_files
 from utils.employee_matching import rebuild_from_db
 
-app = FastAPI(title="Rich's Dashboard")
+app = FastAPI(title="Personal Dashboard")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://localhost:3000"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type"],
 )
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response: Response = await call_next(request)
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; "
+            "connect-src 'self' ws://localhost:8000; "
+            "font-src 'self'; "
+            "frame-src 'none'; "
+            "object-src 'none'"
+        )
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        return response
+
+
+app.add_middleware(SecurityHeadersMiddleware)
 
 # API routes (must be registered before the SPA catch-all)
 app.include_router(employees.router)
@@ -74,6 +101,8 @@ app.include_router(projects_api.router)
 app.include_router(search.router)
 app.include_router(meetings.router)
 app.include_router(issues.router)
+app.include_router(profile.router)
+app.include_router(personas.router)
 
 
 @app.get("/api/health")
@@ -85,11 +114,14 @@ def health():
 def open_url(body: dict):
     """Open a URL in the system default browser (used by pywebview native app)."""
     import webbrowser
+    from urllib.parse import urlparse
 
     url = body.get("url", "")
-    if url and (url.startswith("http://") or url.startswith("https://")):
-        webbrowser.open(url)
-        return {"status": "ok"}
+    if url:
+        parsed = urlparse(url)
+        if parsed.scheme in ("http", "https") and parsed.netloc:
+            webbrowser.open(url)
+            return {"status": "ok"}
     return {"status": "invalid_url"}
 
 
@@ -114,12 +146,10 @@ def restart():
 
 @app.on_event("startup")
 def startup():
-    """Run database migrations and sync data on startup."""
-    # Run migrations first to ensure schema is up to date
+    """Run database migrations, register connectors, and sync data on startup."""
     init_db()
-    # Rebuild employee matching cache from database
+    init_registry()
     rebuild_from_db()
-    # Sync markdown meeting files and Granola notes
     sync_meeting_files()
     sync_granola()
 
@@ -135,7 +165,8 @@ if DIST_DIR.exists():
             from fastapi.responses import JSONResponse
 
             return JSONResponse({"error": "not found"}, status_code=404)
-        file = DIST_DIR / path
-        if file.is_file():
+        file = (DIST_DIR / path).resolve()
+        dist_resolved = DIST_DIR.resolve()
+        if file.is_file() and str(file).startswith(str(dist_resolved)):
             return FileResponse(file)
         return FileResponse(DIST_DIR / "index.html")

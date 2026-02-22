@@ -1,12 +1,15 @@
 """Authentication status and management for connected services."""
 
-import os
-import traceback
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter
+from pydantic import BaseModel
 
+from app_config import ALLOWED_SECRET_KEYS, delete_secret, get_secret, set_secret
 from config import GCLOUD_CREDENTIALS_PATH, GRANOLA_CACHE_PATH
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -34,8 +37,8 @@ def _check_google() -> dict:
     except FileNotFoundError as e:
         result["error"] = str(e)
     except Exception as e:
+        logger.exception("Google auth check failed")
         result["error"] = str(e)
-        result["detail"] = traceback.format_exc()
 
     return result
 
@@ -43,10 +46,10 @@ def _check_google() -> dict:
 def _check_slack() -> dict:
     """Check Slack auth status by making a test API call."""
     result = {"configured": False, "connected": False, "error": None, "detail": None}
-    token = os.environ.get("SLACK_TOKEN", "")
+    token = get_secret("SLACK_TOKEN") or ""
 
     if not token:
-        result["detail"] = "SLACK_TOKEN not set in .env"
+        result["detail"] = "SLACK_TOKEN not configured"
         return result
 
     result["configured"] = True
@@ -71,10 +74,10 @@ def _check_slack() -> dict:
 def _check_notion() -> dict:
     """Check Notion auth status by making a test API call."""
     result = {"configured": False, "connected": False, "error": None, "detail": None}
-    token = os.environ.get("NOTION_TOKEN", "")
+    token = get_secret("NOTION_TOKEN") or ""
 
     if not token:
-        result["detail"] = "NOTION_TOKEN not set in .env"
+        result["detail"] = "NOTION_TOKEN not configured"
         return result
 
     result["configured"] = True
@@ -140,11 +143,11 @@ def _check_github() -> dict:
 def _check_ramp() -> dict:
     """Check Ramp auth status by validating credentials."""
     result = {"configured": False, "connected": False, "error": None, "detail": None}
-    client_id = os.environ.get("RAMP_CLIENT_ID", "")
-    client_secret = os.environ.get("RAMP_CLIENT_SECRET", "")
+    client_id = get_secret("RAMP_CLIENT_ID") or ""
+    client_secret = get_secret("RAMP_CLIENT_SECRET") or ""
 
     if not client_id or not client_secret:
-        result["detail"] = "RAMP_CLIENT_ID and RAMP_CLIENT_SECRET not set in .env"
+        result["detail"] = "RAMP_CLIENT_ID and RAMP_CLIENT_SECRET not configured"
         return result
 
     result["configured"] = True
@@ -177,11 +180,10 @@ def _check_granola() -> dict:
 
 def _get_sync_states() -> dict:
     """Fetch last sync state per source from the database."""
-    from database import get_db
+    from database import get_db_connection
 
-    db = get_db()
-    rows = db.execute("SELECT * FROM sync_state").fetchall()
-    db.close()
+    with get_db_connection(readonly=True) as db:
+        rows = db.execute("SELECT * FROM sync_state").fetchall()
     result = {}
     for row in rows:
         result[row["source"]] = {
@@ -239,7 +241,8 @@ def google_auth():
         run_oauth_flow()
         return {"status": "authenticated"}
     except Exception as e:
-        return {"status": "error", "error": str(e), "detail": traceback.format_exc()}
+        logger.exception("Google OAuth flow failed")
+        return {"status": "error", "error": str(e)}
 
 
 @router.post("/google/revoke")
@@ -273,3 +276,105 @@ def test_connection(service: str):
     if not checker:
         return {"error": f"Unknown service: {service}"}
     return checker()
+
+
+# --- Secrets management ---
+
+
+def _mask_secret(value: str) -> str:
+    """Return a masked version of a secret for display. Shows only first 3 chars."""
+    if not value:
+        return ""
+    if len(value) <= 6:
+        return "***"
+    return value[:3] + "***"
+
+
+@router.get("/secrets")
+def get_secrets():
+    """Return which secrets are configured (masked values, never raw)."""
+    result = {}
+    for key in ALLOWED_SECRET_KEYS:
+        val = get_secret(key)
+        result[key] = {
+            "configured": bool(val),
+            "masked": _mask_secret(val) if val else "",
+        }
+    return result
+
+
+class SecretUpdate(BaseModel):
+    key: str
+    value: str
+
+
+@router.post("/secrets")
+def update_secret(body: SecretUpdate):
+    """Save a secret to config.json and reload into environment."""
+    if body.key not in ALLOWED_SECRET_KEYS:
+        return {"error": f"Unknown secret key: {body.key}"}
+    set_secret(body.key, body.value)
+    return {"status": "ok", "key": body.key, "configured": True}
+
+
+@router.delete("/secrets/{key}")
+def remove_secret(key: str):
+    """Remove a secret from config.json."""
+    if key not in ALLOWED_SECRET_KEYS:
+        return {"error": f"Unknown secret key: {key}"}
+    delete_secret(key)
+    return {"status": "ok", "key": key, "configured": False}
+
+
+# --- Connector management ---
+
+
+@router.get("/connectors")
+def list_connectors():
+    """Return all registered connectors with their metadata and enabled status."""
+    from app_config import get_connector_config
+    from connectors.registry import get_all
+
+    config = get_connector_config()
+    result = []
+    for c in get_all():
+        entry = config.get(c.id, {})
+        enabled = entry.get("enabled", c.default_enabled)
+        result.append(
+            {
+                "id": c.id,
+                "name": c.name,
+                "description": c.description,
+                "category": c.category,
+                "secret_keys": c.secret_keys,
+                "help_steps": c.help_steps,
+                "help_url": c.help_url,
+                "default_enabled": c.default_enabled,
+                "enabled": enabled,
+            }
+        )
+    return result
+
+
+@router.post("/connectors/{connector_id}/enable")
+def enable_connector(connector_id: str):
+    """Enable a connector."""
+    from app_config import set_connector_enabled
+    from connectors.registry import get_by_id
+
+    if not get_by_id(connector_id):
+        return {"error": f"Unknown connector: {connector_id}"}
+    set_connector_enabled(connector_id, True)
+    return {"status": "ok", "connector": connector_id, "enabled": True}
+
+
+@router.post("/connectors/{connector_id}/disable")
+def disable_connector(connector_id: str):
+    """Disable a connector."""
+    from app_config import set_connector_enabled
+    from connectors.registry import get_by_id
+
+    if not get_by_id(connector_id):
+        return {"error": f"Unknown connector: {connector_id}"}
+    set_connector_enabled(connector_id, False)
+    return {"status": "ok", "connector": connector_id, "enabled": False}

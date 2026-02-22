@@ -1,12 +1,12 @@
-"""GitHub REST API connector for PR sync from osmoai/osmo."""
+"""GitHub REST API connector for PR sync."""
 
 import json
 import subprocess
 
 import httpx
 
-from config import GITHUB_PR_SYNC_LIMIT, GITHUB_REPO
-from database import get_db
+from config import GITHUB_PR_SYNC_LIMIT, get_github_repo
+from database import batch_upsert, get_write_db
 
 GITHUB_API_BASE = "https://api.github.com"
 
@@ -61,7 +61,7 @@ def _fetch_prs(client: httpx.Client, params: dict, limit: int) -> list[dict]:
     per_page = min(limit, 100)
     while len(all_prs) < limit:
         resp = client.get(
-            f"{GITHUB_API_BASE}/repos/{GITHUB_REPO}/pulls",
+            f"{GITHUB_API_BASE}/repos/{get_github_repo()}/pulls",
             headers=_get_headers(),
             params={**params, "per_page": per_page, "page": page},
         )
@@ -102,7 +102,12 @@ def _pr_to_row(pr: dict, review_requested: bool) -> tuple:
 
 
 def sync_github_prs() -> int:
-    """Sync open PRs from osmoai/osmo. Returns count of PRs synced."""
+    """Sync open PRs from the configured GitHub repo. Returns count of PRs synced."""
+    repo = get_github_repo()
+    if not repo:
+        raise ValueError("No GitHub repo configured. Set github_repo in your profile or GITHUB_REPO env var.")
+
+    # Phase 1: Fetch all data from GitHub API (no DB connection held)
     with httpx.Client(timeout=30) as client:
         # Get authenticated username
         username = _get_username(client)
@@ -112,7 +117,7 @@ def sync_github_prs() -> int:
             f"{GITHUB_API_BASE}/search/issues",
             headers=_get_headers(),
             params={
-                "q": f"is:pr is:open review-requested:{username} repo:{GITHUB_REPO}",
+                "q": f"is:pr is:open review-requested:{username} repo:{get_github_repo()}",
                 "per_page": GITHUB_PR_SYNC_LIMIT,
             },
         )
@@ -145,16 +150,17 @@ def sync_github_prs() -> int:
             ]
             all_rows.append(_pr_to_row(pr, is_review))
 
-    db = get_db()
-    db.executemany(
-        """INSERT OR REPLACE INTO github_pull_requests
-           (id, number, title, state, draft, author, html_url, created_at, updated_at,
-            merged_at, head_ref, base_ref, labels_json,
-            requested_reviewers_json, review_requested,
-            additions, deletions, changed_files, body_preview)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        all_rows,
-    )
-    db.commit()
-    db.close()
+    # Phase 2: Write in batches
+    with get_write_db() as db:
+        batch_upsert(
+            db,
+            """INSERT OR REPLACE INTO github_pull_requests
+               (id, number, title, state, draft, author, html_url, created_at, updated_at,
+                merged_at, head_ref, base_ref, labels_json,
+                requested_reviewers_json, review_requested,
+                additions, deletions, changed_files, body_preview)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            all_rows,
+        )
+
     return len(all_rows)

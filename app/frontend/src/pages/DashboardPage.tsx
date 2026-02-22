@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
-import { useDashboard, usePriorities, useRefreshPriorities, useDismissPriority, useDismissDashboardItem, useSyncStatus } from '../api/hooks';
+import { Link } from 'react-router-dom';
+import { useDashboard, usePriorities, useRefreshPriorities, useDismissPriority, useDismissDashboardItem, useSyncStatus, useSetupStatus, useConnectors, useAuthStatus } from '../api/hooks';
 import { TimeAgo } from '../components/shared/TimeAgo';
 import { NewsFeed } from '../components/NewsFeed';
 import { EmailThreadModal } from '../components/EmailThreadModal';
@@ -148,154 +149,203 @@ export function DashboardPage() {
     onOpen: handleOpenAtIndex,
   });
 
+  const { data: setupStatus } = useSetupStatus();
+  const { data: connectors } = useConnectors();
+  const { data: authStatus } = useAuthStatus();
+  const enabled = new Set(connectors?.filter(c => c.enabled).map(c => c.id));
+  const noAuthCheck = new Set(['news', 'gemini']);
+  const active = new Set(
+    [...enabled].filter(id => {
+      if (noAuthCheck.has(id)) return true;
+      const status = authStatus?.[id as keyof typeof authStatus];
+      if (!status) return true;
+      return status.connected;
+    })
+  );
+
   if (isLoading) return <p className="empty-state">Loading...</p>;
+
+  const connectedCount = setupStatus?.connected_services ?? 0;
+  const hasData = (data?.calendar_today?.length ?? 0) > 0
+    || (data?.emails_recent?.length ?? 0) > 0
+    || (data?.slack_recent?.length ?? 0) > 0;
+
+  if (connectedCount === 0 && !hasData) {
+    return (
+      <div>
+        <h1>Today</h1>
+        <div className="dashboard-empty-state">
+          <h2>Welcome to Personal Dashboard</h2>
+          <p>
+            Connect your services to see your calendar, email, Slack, and
+            more right here. Head to <Link to="/settings">Settings</Link> to
+            get started.
+          </p>
+          <Link to="/settings" className="btn-primary" style={{ display: 'inline-block', textDecoration: 'none' }}>
+            Connect Services
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div ref={containerRef}>
       <h1>Today</h1>
 
-      <div id="priorities" className="priorities-section">
-        <div className="priorities-header">
-          <h2>Priorities</h2>
-          <button
-            className="priorities-refresh-btn"
-            onClick={handleRefresh}
-            disabled={refreshPriorities.isPending}
-            title="Refresh priorities"
-          >
-            {refreshPriorities.isPending ? 'Refreshing...' : 'Refresh'}
-          </button>
-        </div>
-        {prioritiesLoading && (
-          <p className="empty-state">Analyzing your morning...</p>
-        )}
-        {priorities?.error && (
-          <p className="empty-state">Could not load priorities: {priorities.error}</p>
-        )}
-        {!prioritiesLoading && !priorities?.error && priorities?.items.length === 0 && (
-          <p className="empty-state">No priorities — add a GEMINI_API_KEY to enable</p>
-        )}
-        {priorities?.items.map((item, i) => (
-          <div key={i} className={`priority-item priority-urgency-${item.urgency}`}>
-            <div className="priority-item-header">
-              <span className="priority-item-title">{item.title}</span>
-              <div className="priority-item-actions">
-                <button
-                  className="priority-dismiss-btn priority-done-btn"
-                  onClick={() => handleDismiss(item.title, 'done')}
-                  title="Mark as done"
-                >
-                  Done
-                </button>
-                <button
-                  className="priority-dismiss-btn priority-ignore-btn"
-                  onClick={() => handleDismiss(item.title, 'ignored')}
-                  title="Ignore"
-                >
-                  Ignore
-                </button>
-                <span className={`priority-source-badge priority-source-${item.source}`}>
-                  {SOURCE_LABELS[item.source] || item.source}
-                </span>
-              </div>
-            </div>
-            <div className="priority-item-reason">{item.reason}</div>
+      {active.has('gemini') && (
+        <div id="priorities" className="priorities-section">
+          <div className="priorities-header">
+            <h2>Priorities</h2>
+            <button
+              className="priorities-refresh-btn"
+              onClick={handleRefresh}
+              disabled={refreshPriorities.isPending}
+              title="Refresh priorities"
+            >
+              {refreshPriorities.isPending ? 'Refreshing...' : 'Refresh'}
+            </button>
           </div>
-        ))}
-      </div>
+          {prioritiesLoading && (
+            <p className="empty-state">Analyzing your morning...</p>
+          )}
+          {priorities?.error && (
+            <p className="empty-state">Could not load priorities: {priorities.error}</p>
+          )}
+          {!prioritiesLoading && !priorities?.error && priorities?.items.length === 0 && (
+            <p className="empty-state">
+              No priorities yet. Configure your Gemini API key in{' '}
+              <Link to="/settings">Settings</Link> to enable AI priorities.
+            </p>
+          )}
+          {priorities?.items.map((item, i) => (
+            <div key={i} className={`priority-item priority-urgency-${item.urgency}`}>
+              <div className="priority-item-header">
+                <span className="priority-item-title">{item.title}</span>
+                <div className="priority-item-actions">
+                  <button
+                    className="priority-dismiss-btn priority-done-btn"
+                    onClick={() => handleDismiss(item.title, 'done')}
+                    title="Mark as done"
+                  >
+                    Done
+                  </button>
+                  <button
+                    className="priority-dismiss-btn priority-ignore-btn"
+                    onClick={() => handleDismiss(item.title, 'ignored')}
+                    title="Ignore"
+                  >
+                    Ignore
+                  </button>
+                  <span className={`priority-source-badge priority-source-${item.source}`}>
+                    {SOURCE_LABELS[item.source] || item.source}
+                  </span>
+                </div>
+              </div>
+              <div className="priority-item-reason">{item.reason}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="dashboard-grid">
-        <div className="dashboard-card">
-          <h3>Calendar</h3>
-          {data?.calendar_today.length === 0 && (
-            <p className="empty-state">No events today</p>
-          )}
-          {data?.calendar_today.map((event) => (
-            <div key={event.id} className="dashboard-item">
-              <span className="dashboard-item-time">
-                {new Date(event.start_time).toLocaleTimeString('en-US', {
-                  hour: 'numeric',
-                  minute: '2-digit',
-                })}
-              </span>{' '}
-              <span className="dashboard-item-title">{event.summary}</span>
-            </div>
-          ))}
-        </div>
-
-        <div className="dashboard-card">
-          <h3>Upcoming Meetings</h3>
-          {data?.meetings_upcoming.length === 0 && (
-            <p className="empty-state">No upcoming meetings</p>
-          )}
-          {data?.meetings_upcoming.map((event) => (
-            <div key={event.id} className="dashboard-item">
-              <span className="dashboard-item-time">
-                {new Date(event.start_time).toLocaleDateString('en-US', {
-                  weekday: 'short',
-                  month: 'short',
-                  day: 'numeric',
-                })}
-              </span>{' '}
-              <span className="dashboard-item-title">{event.summary}</span>
-            </div>
-          ))}
-        </div>
-
-        <div className="dashboard-card">
-          <div className="dashboard-card-header">
-            <h3>Recent Email</h3>
-            <DayFilter value={days} onChange={setDays} />
-          </div>
-          {data?.emails_recent.length === 0 && (
-            <p className="empty-state">No recent emails</p>
-          )}
-          {data?.emails_recent.map((email) => {
-            const isExpanded = expandedIds.has(`email-${email.id}`);
-            const hasSnippet = !!email.snippet;
-            return (
-              <div key={email.id} className="dashboard-item-row">
-                <div
-                  className="dashboard-item dashboard-item-link"
-                  style={{ cursor: 'pointer' }}
-                  onClick={() => setSelectedThread({
-                    threadId: email.thread_id || email.id,
-                    subject: email.subject,
+        {active.has('google') && (
+          <div className="dashboard-card">
+            <h3>Calendar</h3>
+            {data?.calendar_today.length === 0 && (
+              <p className="empty-state">No events today</p>
+            )}
+            {data?.calendar_today.map((event) => (
+              <div key={event.id} className="dashboard-item">
+                <span className="dashboard-item-time">
+                  {new Date(event.start_time).toLocaleTimeString('en-US', {
+                    hour: 'numeric',
+                    minute: '2-digit',
                   })}
-                >
-                  <div>
-                    <span className="dashboard-item-title">
-                      {email.is_unread && <strong>{'\u2022'} </strong>}
-                      {email.subject}
-                      {(email.message_count ?? 0) > 1 && (
-                        <span className="email-thread-count">({email.message_count})</span>
-                      )}
-                    </span>
-                  </div>
-                  <div className="dashboard-item-meta">
-                    {email.from_name || email.from_email} &middot;{' '}
-                    <TimeAgo date={email.date} />
-                  </div>
-                  {isExpanded && hasSnippet && (
-                    <div className="dashboard-item-expanded">{email.snippet}</div>
-                  )}
-                </div>
-                {hasSnippet && (
-                  <button
-                    className="dashboard-expand-btn"
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleExpand(`email-${email.id}`); }}
-                    title={isExpanded ? 'Collapse (e)' : 'Expand (e)'}
-                  >
-                    {isExpanded ? '\u25BE' : '\u25B8'}
-                  </button>
-                )}
-                <DismissBtn onClick={() => dismissItem.mutate({ source: 'email', item_id: email.thread_id || email.id })} />
+                </span>{' '}
+                <span className="dashboard-item-title">{event.summary}</span>
               </div>
-            );
-          })}
-        </div>
+            ))}
+          </div>
+        )}
 
-        <div className="dashboard-card">
+        {active.has('google') && (
+          <div className="dashboard-card">
+            <h3>Upcoming Meetings</h3>
+            {data?.meetings_upcoming.length === 0 && (
+              <p className="empty-state">No upcoming meetings</p>
+            )}
+            {data?.meetings_upcoming.map((event) => (
+              <div key={event.id} className="dashboard-item">
+                <span className="dashboard-item-time">
+                  {new Date(event.start_time).toLocaleDateString('en-US', {
+                    weekday: 'short',
+                    month: 'short',
+                    day: 'numeric',
+                  })}
+                </span>{' '}
+                <span className="dashboard-item-title">{event.summary}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {active.has('google') && (
+          <div className="dashboard-card">
+            <div className="dashboard-card-header">
+              <h3>Recent Email</h3>
+              <DayFilter value={days} onChange={setDays} />
+            </div>
+            {data?.emails_recent.length === 0 && (
+              <p className="empty-state">No recent emails</p>
+            )}
+            {data?.emails_recent.map((email) => {
+              const isExpanded = expandedIds.has(`email-${email.id}`);
+              const hasSnippet = !!email.snippet;
+              return (
+                <div key={email.id} className="dashboard-item-row">
+                  <div
+                    className="dashboard-item dashboard-item-link"
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => setSelectedThread({
+                      threadId: email.thread_id || email.id,
+                      subject: email.subject,
+                    })}
+                  >
+                    <div>
+                      <span className="dashboard-item-title">
+                        {email.is_unread && <strong>{'\u2022'} </strong>}
+                        {email.subject}
+                        {(email.message_count ?? 0) > 1 && (
+                          <span className="email-thread-count">({email.message_count})</span>
+                        )}
+                      </span>
+                    </div>
+                    <div className="dashboard-item-meta">
+                      {email.from_name || email.from_email} &middot;{' '}
+                      <TimeAgo date={email.date} />
+                    </div>
+                    {isExpanded && hasSnippet && (
+                      <div className="dashboard-item-expanded">{email.snippet}</div>
+                    )}
+                  </div>
+                  {hasSnippet && (
+                    <button
+                      className="dashboard-expand-btn"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleExpand(`email-${email.id}`); }}
+                      title={isExpanded ? 'Collapse (e)' : 'Expand (e)'}
+                    >
+                      {isExpanded ? '\u25BE' : '\u25B8'}
+                    </button>
+                  )}
+                  <DismissBtn onClick={() => dismissItem.mutate({ source: 'email', item_id: email.thread_id || email.id })} />
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {active.has('slack') && <div className="dashboard-card">
           <div className="dashboard-card-header">
             <h3>Slack</h3>
             <DayFilter value={days} onChange={setDays} />
@@ -351,113 +401,119 @@ export function DashboardPage() {
               </div>
             );
           })}
-        </div>
+        </div>}
 
-        <div className="dashboard-card">
-          <div className="dashboard-card-header">
-            <h3>GitHub Reviews</h3>
-            <DayFilter value={days} onChange={setDays} />
-          </div>
-          {(!data?.github_review_requests || data.github_review_requests.length === 0) && (
-            <p className="empty-state">No pending review requests</p>
-          )}
-          {data?.github_review_requests?.map((pr) => {
-            const isExpanded = expandedIds.has(`gh-${pr.number}`);
-            return (
-              <div key={pr.number} className="dashboard-item-row">
-                <a
-                  className="dashboard-item dashboard-item-link"
-                  href={pr.html_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <div className="dashboard-item-title">
-                    <span className="github-pr-number">#{pr.number}</span>{' '}
-                    {pr.title}
-                  </div>
-                  <div className="dashboard-item-meta">
-                    {pr.author} &middot; <TimeAgo date={pr.updated_at} />
-                  </div>
-                  {isExpanded && (
-                    <div className="dashboard-item-expanded">
-                      {pr.head_ref} &rarr; {pr.base_ref}
-                      {pr.labels.length > 0 && <span> &middot; {pr.labels.join(', ')}</span>}
+        {active.has('github') && (
+          <div className="dashboard-card">
+            <div className="dashboard-card-header">
+              <h3>GitHub Reviews</h3>
+              <DayFilter value={days} onChange={setDays} />
+            </div>
+            {(!data?.github_review_requests || data.github_review_requests.length === 0) && (
+              <p className="empty-state">No pending review requests</p>
+            )}
+            {data?.github_review_requests?.map((pr) => {
+              const isExpanded = expandedIds.has(`gh-${pr.number}`);
+              return (
+                <div key={pr.number} className="dashboard-item-row">
+                  <a
+                    className="dashboard-item dashboard-item-link"
+                    href={pr.html_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <div className="dashboard-item-title">
+                      <span className="github-pr-number">#{pr.number}</span>{' '}
+                      {pr.title}
                     </div>
-                  )}
-                </a>
-                <button
-                  className="dashboard-expand-btn"
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleExpand(`gh-${pr.number}`); }}
-                  title={isExpanded ? 'Collapse (e)' : 'Expand (e)'}
-                >
-                  {isExpanded ? '\u25BE' : '\u25B8'}
-                </button>
-                <DismissBtn onClick={() => dismissItem.mutate({ source: 'github', item_id: String(pr.number) })} />
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="dashboard-card">
-          <div className="dashboard-card-header">
-            <h3>Notion</h3>
-            <DayFilter value={days} onChange={setDays} />
-          </div>
-          {data?.notion_recent.length === 0 && (
-            <p className="empty-state">No recent Notion pages</p>
-          )}
-          {data?.notion_recent.map((page) => {
-            const isExpanded = expandedIds.has(`notion-${page.id}`);
-            const hasExtra = !!(page.snippet || page.relevance_reason);
-            return (
-              <div key={page.id} className="dashboard-item-row">
-                <a
-                  className="dashboard-item dashboard-item-link"
-                  href={page.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <span className="dashboard-item-title">{page.title}</span>
-                  <div className="dashboard-item-meta">
-                    {!isExpanded && page.relevance_reason && (
-                      <span>{page.relevance_reason} &middot; </span>
+                    <div className="dashboard-item-meta">
+                      {pr.author} &middot; <TimeAgo date={pr.updated_at} />
+                    </div>
+                    {isExpanded && (
+                      <div className="dashboard-item-expanded">
+                        {pr.head_ref} &rarr; {pr.base_ref}
+                        {pr.labels.length > 0 && <span> &middot; {pr.labels.join(', ')}</span>}
+                      </div>
                     )}
-                    <TimeAgo date={page.last_edited_time} />
-                  </div>
-                  {isExpanded && (
-                    <div className="dashboard-item-expanded">
-                      {page.snippet && <div>{page.snippet}</div>}
-                      {page.relevance_reason && <div style={{ fontStyle: 'italic' }}>{page.relevance_reason}</div>}
-                    </div>
-                  )}
-                </a>
-                {hasExtra && (
+                  </a>
                   <button
                     className="dashboard-expand-btn"
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleExpand(`notion-${page.id}`); }}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleExpand(`gh-${pr.number}`); }}
                     title={isExpanded ? 'Collapse (e)' : 'Expand (e)'}
                   >
                     {isExpanded ? '\u25BE' : '\u25B8'}
                   </button>
-                )}
-                <DismissBtn onClick={() => dismissItem.mutate({ source: 'notion', item_id: page.id })} />
-              </div>
-            );
-          })}
-        </div>
+                  <DismissBtn onClick={() => dismissItem.mutate({ source: 'github', item_id: String(pr.number) })} />
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {active.has('notion') && (
+          <div className="dashboard-card">
+            <div className="dashboard-card-header">
+              <h3>Notion</h3>
+              <DayFilter value={days} onChange={setDays} />
+            </div>
+            {data?.notion_recent.length === 0 && (
+              <p className="empty-state">No recent Notion pages</p>
+            )}
+            {data?.notion_recent.map((page) => {
+              const isExpanded = expandedIds.has(`notion-${page.id}`);
+              const hasExtra = !!(page.snippet || page.relevance_reason);
+              return (
+                <div key={page.id} className="dashboard-item-row">
+                  <a
+                    className="dashboard-item dashboard-item-link"
+                    href={page.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <span className="dashboard-item-title">{page.title}</span>
+                    <div className="dashboard-item-meta">
+                      {!isExpanded && page.relevance_reason && (
+                        <span>{page.relevance_reason} &middot; </span>
+                      )}
+                      <TimeAgo date={page.last_edited_time} />
+                    </div>
+                    {isExpanded && (
+                      <div className="dashboard-item-expanded">
+                        {page.snippet && <div>{page.snippet}</div>}
+                        {page.relevance_reason && <div style={{ fontStyle: 'italic' }}>{page.relevance_reason}</div>}
+                      </div>
+                    )}
+                  </a>
+                  {hasExtra && (
+                    <button
+                      className="dashboard-expand-btn"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleExpand(`notion-${page.id}`); }}
+                      title={isExpanded ? 'Collapse (e)' : 'Expand (e)'}
+                    >
+                      {isExpanded ? '\u25BE' : '\u25B8'}
+                    </button>
+                  )}
+                  <DismissBtn onClick={() => dismissItem.mutate({ source: 'notion', item_id: page.id })} />
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         <div className="dashboard-card">
           <h3>Status</h3>
           <div className="dashboard-item">
             <span className="dashboard-item-title">
-              {data?.notes_open_count ?? 0} open notes
+              <span className="count-badge">{data?.notes_open_count ?? 0}</span> open notes
             </span>
           </div>
         </div>
       </div>
 
-      <h2>News</h2>
-      <NewsFeed />
+      {active.has('news') && <>
+        <h2>News</h2>
+        <NewsFeed />
+      </>}
 
       {selectedThread && (
         <EmailThreadModal

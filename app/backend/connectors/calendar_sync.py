@@ -7,7 +7,7 @@ from googleapiclient.discovery import build
 
 from config import CALENDAR_DAYS_AHEAD, CALENDAR_DAYS_BEHIND
 from connectors.google_auth import get_google_credentials
-from database import get_db
+from database import batch_upsert, get_write_db
 
 
 def sync_calendar_events() -> int:
@@ -18,6 +18,7 @@ def sync_calendar_events() -> int:
     time_min = (now - timedelta(days=CALENDAR_DAYS_BEHIND)).isoformat()
     time_max = (now + timedelta(days=CALENDAR_DAYS_AHEAD)).isoformat()
 
+    # Phase 1: Fetch all events from API (no DB connection held)
     events = []
     page_token = None
     while True:
@@ -38,8 +39,9 @@ def sync_calendar_events() -> int:
         page_token = events_result.get("nextPageToken")
         if not page_token:
             break
-    db = get_db()
 
+    # Phase 2: Build rows
+    rows = []
     for event in events:
         start = event.get("start", {})
         end = event.get("end", {})
@@ -57,11 +59,7 @@ def sync_calendar_events() -> int:
                 }
             )
 
-        db.execute(
-            """INSERT OR REPLACE INTO calendar_events
-               (id, summary, description, location, start_time, end_time, all_day,
-                attendees_json, organizer_email, calendar_id, html_link)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        rows.append(
             (
                 event["id"],
                 event.get("summary", "(No title)"),
@@ -74,9 +72,18 @@ def sync_calendar_events() -> int:
                 event.get("organizer", {}).get("email", ""),
                 "primary",
                 event.get("htmlLink", ""),
-            ),
+            )
         )
 
-    db.commit()
-    db.close()
+    # Phase 3: Write in batches
+    with get_write_db() as db:
+        batch_upsert(
+            db,
+            """INSERT OR REPLACE INTO calendar_events
+               (id, summary, description, location, start_time, end_time, all_day,
+                attendees_json, organizer_email, calendar_id, html_link)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows,
+        )
+
     return len(events)

@@ -1,4 +1,5 @@
 import json
+import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -7,79 +8,86 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks
 
 from connectors.markdown import parse_meeting_files
-from database import get_db
+from database import batch_upsert, get_db_connection, get_write_db
 from utils.employee_matching import rebuild_from_db
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 
+_sync_lock = threading.Lock()
 _sync_running = False
 _sync_current_source: str | None = None
 
 
 def _update_sync_state(source: str, status: str, error: str | None, items: int):
-    db = get_db()
-    db.execute(
-        """INSERT INTO sync_state (source, last_sync_at, last_sync_status, last_error, items_synced)
-           VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT(source) DO UPDATE SET
-             last_sync_at=excluded.last_sync_at,
-             last_sync_status=excluded.last_sync_status,
-             last_error=excluded.last_error,
-             items_synced=excluded.items_synced""",
-        (source, datetime.now().isoformat(), status, error, items),
-    )
-    db.commit()
-    db.close()
+    with get_write_db() as db:
+        db.execute(
+            """INSERT INTO sync_state (source, last_sync_at, last_sync_status, last_error, items_synced)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(source) DO UPDATE SET
+                 last_sync_at=excluded.last_sync_at,
+                 last_sync_status=excluded.last_sync_status,
+                 last_error=excluded.last_error,
+                 items_synced=excluded.items_synced""",
+            (source, datetime.now().isoformat(), status, error, items),
+        )
+        db.commit()
 
 
 def sync_meeting_files():
     """Refresh meeting_files table from disk for employees that have a dir_path."""
-    db = get_db()
-    try:
-        rows = db.execute("SELECT id, dir_path FROM employees WHERE dir_path IS NOT NULL AND dir_path != ''").fetchall()
-        count = 0
-        for row in rows:
-            meetings_dir = Path(row["dir_path"]) / "meetings"
-            meetings = parse_meeting_files(meetings_dir, row["id"])
-            for m in meetings:
-                db.execute(
-                    """INSERT INTO meeting_files
-                       (employee_id, filename, filepath, meeting_date, title, summary,
-                        action_items_json, granola_link, content_markdown, last_modified)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                       ON CONFLICT(filepath) DO UPDATE SET
-                         employee_id=excluded.employee_id,
-                         filename=excluded.filename,
-                         meeting_date=excluded.meeting_date,
-                         title=excluded.title,
-                         summary=excluded.summary,
-                         action_items_json=excluded.action_items_json,
-                         granola_link=excluded.granola_link,
-                         content_markdown=excluded.content_markdown,
-                         last_modified=excluded.last_modified""",
-                    (
-                        m["employee_id"],
-                        m["filename"],
-                        m["filepath"],
-                        m["meeting_date"],
-                        m["title"],
-                        m["summary"],
-                        json.dumps(m["action_items"]),
-                        m["granola_link"],
-                        m["content_markdown"],
-                        m["last_modified"],
-                    ),
+    # Phase 1: Read employee list
+    with get_db_connection(readonly=True) as db:
+        emp_rows = db.execute(
+            "SELECT id, dir_path FROM employees WHERE dir_path IS NOT NULL AND dir_path != ''"
+        ).fetchall()
+
+    # Phase 2: Parse all meeting files from disk (no DB connection held)
+    all_rows = []
+    for row in emp_rows:
+        meetings_dir = Path(row["dir_path"]) / "meetings"
+        meetings = parse_meeting_files(meetings_dir, row["id"])
+        for m in meetings:
+            all_rows.append(
+                (
+                    m["employee_id"],
+                    m["filename"],
+                    m["filepath"],
+                    m["meeting_date"],
+                    m["title"],
+                    m["summary"],
+                    json.dumps(m["action_items"]),
+                    m["granola_link"],
+                    m["content_markdown"],
+                    m["last_modified"],
                 )
-            count += len(meetings)
-        db.commit()
+            )
+
+    # Phase 3: Write in batches with write lock
+    try:
+        with get_write_db() as db:
+            batch_upsert(
+                db,
+                """INSERT INTO meeting_files
+                   (employee_id, filename, filepath, meeting_date, title, summary,
+                    action_items_json, granola_link, content_markdown, last_modified)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(filepath) DO UPDATE SET
+                     employee_id=excluded.employee_id,
+                     filename=excluded.filename,
+                     meeting_date=excluded.meeting_date,
+                     title=excluded.title,
+                     summary=excluded.summary,
+                     action_items_json=excluded.action_items_json,
+                     granola_link=excluded.granola_link,
+                     content_markdown=excluded.content_markdown,
+                     last_modified=excluded.last_modified""",
+                all_rows,
+            )
         rebuild_from_db()
-        _update_sync_state("markdown", "success", None, count)
+        _update_sync_state("markdown", "success", None, len(all_rows))
     except Exception:
-        db.rollback()
         _update_sync_state("markdown", "error", traceback.format_exc(), 0)
         raise
-    finally:
-        db.close()
 
 
 # Keep old name as alias for backward compatibility
@@ -209,14 +217,26 @@ def sync_news():
         _update_sync_state("news", "error", traceback.format_exc(), 0)
 
 
+def _is_enabled(connector_id: str) -> bool:
+    """Check if a connector is enabled in the registry."""
+    try:
+        from connectors.registry import is_enabled
+
+        return is_enabled(connector_id)
+    except Exception:
+        return True  # Default to enabled if registry not initialized
+
+
 def _run_full_sync():
     global _sync_running, _sync_current_source
-    _sync_running = True
     try:
         # Group 1: Local sources — fast, no network, run in parallel
         _sync_current_source = "markdown"
+        local_fns = [sync_meeting_files]
+        if _is_enabled("granola"):
+            local_fns.append(sync_granola)
         with ThreadPoolExecutor(max_workers=2) as pool:
-            futs = [pool.submit(sync_meeting_files), pool.submit(sync_granola)]
+            futs = [pool.submit(fn) for fn in local_fns]
             for f in as_completed(futs):
                 try:
                     f.result()
@@ -224,23 +244,37 @@ def _run_full_sync():
                     pass
 
         # Group 2: External APIs — independent of each other, run in parallel
-        _sync_current_source = "gmail"
-        external = [sync_gmail, sync_calendar, sync_slack, sync_notion, sync_github, sync_ramp, sync_ramp_vendors]
-        with ThreadPoolExecutor(max_workers=len(external)) as pool:
-            futs = [pool.submit(fn) for fn in external]
-            for f in as_completed(futs):
-                try:
-                    f.result()
-                except Exception:
-                    pass
+        _sync_current_source = "external"
+        external = []
+        if _is_enabled("google"):
+            external.extend([sync_gmail, sync_calendar])
+        if _is_enabled("slack"):
+            external.append(sync_slack)
+        if _is_enabled("notion"):
+            external.append(sync_notion)
+        if _is_enabled("github"):
+            external.append(sync_github)
+        if _is_enabled("ramp"):
+            external.extend([sync_ramp, sync_ramp_vendors])
+
+        if external:
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                futs = [pool.submit(fn) for fn in external]
+                for f in as_completed(futs):
+                    try:
+                        f.result()
+                    except Exception:
+                        pass
 
         # Group 3: Bills — depends on vendors being synced first
-        _sync_current_source = "ramp_bills"
-        sync_ramp_bills()
+        if _is_enabled("ramp"):
+            _sync_current_source = "ramp_bills"
+            sync_ramp_bills()
 
         # Group 4: News — reads from already-synced slack/email rows, must run last
-        _sync_current_source = "news"
-        sync_news()
+        if _is_enabled("news"):
+            _sync_current_source = "news"
+            sync_news()
 
         _sync_current_source = None
         # Rebuild FTS indexes after all data is refreshed
@@ -255,8 +289,10 @@ def _run_full_sync():
 @router.post("")
 def trigger_sync(background_tasks: BackgroundTasks):
     global _sync_running
-    if _sync_running:
-        return {"status": "already_running"}
+    with _sync_lock:
+        if _sync_running:
+            return {"status": "already_running"}
+        _sync_running = True
     background_tasks.add_task(_run_full_sync)
     return {"status": "started"}
 
@@ -289,9 +325,8 @@ def trigger_source_sync(source: str, background_tasks: BackgroundTasks, org_only
 @router.get("/status")
 def get_sync_status():
     global _sync_running, _sync_current_source
-    db = get_db()
-    rows = db.execute("SELECT * FROM sync_state").fetchall()
-    db.close()
+    with get_db_connection(readonly=True) as db:
+        rows = db.execute("SELECT * FROM sync_state").fetchall()
     return {
         "running": _sync_running,
         "current_source": _sync_current_source,

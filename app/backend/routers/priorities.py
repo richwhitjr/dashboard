@@ -1,10 +1,10 @@
 import json
-import os
 from datetime import datetime
 
 from fastapi import APIRouter, Query
 
-from database import get_db
+from app_config import get_prompt_context, get_secret
+from database import get_db_connection, get_write_db
 
 router = APIRouter(prefix="/api/priorities", tags=["priorities"])
 
@@ -104,10 +104,12 @@ def _build_context(db) -> dict:
     }
 
 
-SYSTEM_PROMPT = """\
-You are a morning briefing assistant for Rich, the CTO of Osmo. Your job is to analyze \
-his Slack messages, emails, calendar, open notes, and Ramp bills and identify up to 25 important \
-items he should focus on today.
+def _build_system_prompt() -> str:
+    ctx = get_prompt_context()
+    return f"""\
+You are a morning briefing assistant {ctx}. Your job is to analyze \
+the user's Slack messages, emails, calendar, open notes, and Ramp bills and identify up to 25 important \
+items they should focus on today.
 
 For each item, provide:
 - A short title (max 10 words)
@@ -119,7 +121,7 @@ Prioritize:
 1. Direct messages or mentions that need a reply
 2. Meetings happening today that need prep
 3. Unread emails from executives, direct reports, or external stakeholders
-4. Threads where Rich was asked a question or tagged
+4. Threads where the user was asked a question or tagged
 5. Open notes/tasks that are due or high priority
 6. Anything that looks time-sensitive or blocking someone
 7. Ramp bills that are overdue, pending approval, or unusually large (>$10k)
@@ -130,7 +132,7 @@ Ignore and never surface:
 - Mass mailing list messages that don't require a personal reply
 - Ramp bills that are already paid
 
-Be concise and actionable. Focus on what Rich should DO, not just what happened.
+Be concise and actionable. Focus on what the user should DO, not just what happened.
 
 Respond with ONLY valid JSON — an array of objects with keys: title, reason, source, urgency.
 No markdown, no explanation, just the JSON array."""
@@ -138,7 +140,7 @@ No markdown, no explanation, just the JSON array."""
 
 def _call_gemini(context: dict, dismissed_titles: list[str]) -> list[dict]:
     """Call Gemini API to analyze priorities."""
-    api_key = os.environ.get("GEMINI_API_KEY", "")
+    api_key = get_secret("GEMINI_API_KEY") or ""
     if not api_key:
         return []
 
@@ -160,7 +162,7 @@ def _call_gemini(context: dict, dismissed_titles: list[str]) -> list[dict]:
         model="gemini-2.0-flash",
         contents=user_message,
         config={
-            "system_instruction": SYSTEM_PROMPT,
+            "system_instruction": _build_system_prompt(),
             "temperature": 0.3,
             "response_mime_type": "application/json",
         },
@@ -196,29 +198,27 @@ def _save_cache(db, items: list[dict]):
 
 @router.get("")
 def get_priorities(refresh: bool = Query(False)):
-    db = get_db()
+    with get_db_connection(readonly=True) as db:
+        # Load dismissed titles
+        dismissed = {r["title"] for r in db.execute("SELECT title FROM dismissed_priorities").fetchall()}
 
-    # Load dismissed titles
-    dismissed = {r["title"] for r in db.execute("SELECT title FROM dismissed_priorities").fetchall()}
+        if not refresh:
+            cached = _get_cached(db)
+            if cached is not None:
+                items = [item for item in cached if item.get("title") not in dismissed]
+                return {"items": items}
 
-    if not refresh:
-        cached = _get_cached(db)
-        if cached is not None:
-            db.close()
-            items = [item for item in cached if item.get("title") not in dismissed]
-            return {"items": items}
+        # Generate fresh priorities from Gemini
+        context = _build_context(db)
 
-    # Generate fresh priorities from Gemini
-    context = _build_context(db)
     try:
         items = _call_gemini(context, list(dismissed))
     except Exception as e:
-        db.close()
         return {"items": [], "error": str(e)}
 
     # Cache the results
-    _save_cache(db, items)
-    db.close()
+    with get_write_db() as db:
+        _save_cache(db, items)
 
     items = [item for item in items if item.get("title") not in dismissed]
     return {"items": items}
@@ -230,13 +230,12 @@ def dismiss_priority(body: dict):
     reason = body.get("reason", "ignored")
     if not title:
         return {"error": "title is required"}
-    db = get_db()
-    db.execute(
-        "INSERT OR REPLACE INTO dismissed_priorities (title, reason) VALUES (?, ?)",
-        (title, reason),
-    )
-    db.commit()
-    db.close()
+    with get_write_db() as db:
+        db.execute(
+            "INSERT OR REPLACE INTO dismissed_priorities (title, reason) VALUES (?, ?)",
+            (title, reason),
+        )
+        db.commit()
     return {"ok": True}
 
 
@@ -245,8 +244,7 @@ def undismiss_priority(body: dict):
     title = body.get("title", "").strip()
     if not title:
         return {"error": "title is required"}
-    db = get_db()
-    db.execute("DELETE FROM dismissed_priorities WHERE title = ?", (title,))
-    db.commit()
-    db.close()
+    with get_write_db() as db:
+        db.execute("DELETE FROM dismissed_priorities WHERE title = ?", (title,))
+        db.commit()
     return {"ok": True}

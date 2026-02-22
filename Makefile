@@ -6,13 +6,15 @@ FRONTEND_DIR = app/frontend
 # --- Native app ---
 
 start:
+	@echo "Stopping any existing servers..."
+	@lsof -ti:8000 | xargs kill -9 2>/dev/null || true
+	@lsof -ti:5173 | xargs kill -9 2>/dev/null || true
 	@echo "Updating backend dependencies..."
 	@cd $(BACKEND_DIR) && source venv/bin/activate && pip install -q -r requirements.txt
 	@echo "Updating frontend dependencies..."
 	@cd $(FRONTEND_DIR) && npm install --silent
 	@echo "Building frontend..."
 	@cd $(FRONTEND_DIR) && npm run build
-	@lsof -ti:8000 | xargs kill -9 2>/dev/null || true
 	@echo "Opening Dashboard..."
 	@open Dashboard.app
 
@@ -22,6 +24,7 @@ dashboard: start
 
 app: build
 	@lsof -ti:8000 | xargs kill -9 2>/dev/null || true
+	@lsof -ti:5173 | xargs kill -9 2>/dev/null || true
 	@open Dashboard.app
 
 build:

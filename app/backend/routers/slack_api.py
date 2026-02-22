@@ -11,7 +11,8 @@ import certifi
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from database import get_db
+from app_config import get_prompt_context, get_secret
+from database import get_db_connection, get_write_db
 
 router = APIRouter(prefix="/api/slack", tags=["slack"])
 
@@ -198,20 +199,23 @@ def send_message(msg: SlackMessage):
 
 # --- Gemini-ranked Slack messages ---
 
-_SLACK_RANK_PROMPT = """\
-You are a priority-ranking assistant for Rich, the CTO of Osmo. You will receive a list of \
-recent Slack messages. Your job is to rank them by importance/priority for Rich.
+
+def _build_slack_rank_prompt() -> str:
+    ctx = get_prompt_context()
+    return f"""\
+You are a priority-ranking assistant {ctx}. You will receive a list of \
+recent Slack messages. Your job is to rank them by importance/priority for the user.
 
 For each message, assign a priority_score from 1-10 where:
-- 10: Urgent, needs immediate attention (direct questions to Rich, production issues, exec requests)
+- 10: Urgent, needs immediate attention (direct questions to the user, production issues, exec requests)
 - 7-9: High priority (important decisions, team blockers, project updates needing input)
 - 4-6: Medium (useful context, FYI updates, interesting discussions)
 - 1-3: Low (chitchat, automated notifications, irrelevant channels)
 
 Consider:
-1. Direct messages and mentions of Rich are highest priority
+1. Direct messages and mentions of the user are highest priority
 2. Messages from direct reports and executives matter more
-3. Questions awaiting Rich's response are urgent
+3. Questions awaiting the user's response are urgent
 4. Production issues, incidents, or blockers are urgent
 5. Project updates and decisions are medium-high
 6. General channel chatter and automated bot messages are low
@@ -222,7 +226,7 @@ Order by priority_score descending. Return ALL messages provided, scored."""
 
 def _rank_slack_with_gemini(messages: list[dict]) -> list[dict]:
     """Call Gemini to rank Slack messages by priority."""
-    api_key = os.environ.get("GEMINI_API_KEY", "")
+    api_key = get_secret("GEMINI_API_KEY") or ""
     if not api_key:
         return []
 
@@ -236,7 +240,7 @@ def _rank_slack_with_gemini(messages: list[dict]) -> list[dict]:
         model="gemini-2.0-flash",
         contents=user_message,
         config={
-            "system_instruction": _SLACK_RANK_PROMPT,
+            "system_instruction": _build_slack_rank_prompt(),
             "temperature": 0.2,
             "response_mime_type": "application/json",
         },
@@ -259,36 +263,34 @@ def _dismissed_slack_ids(db) -> set[str]:
 @router.get("/prioritized")
 def get_prioritized_slack(refresh: bool = Query(False), days: int = Query(7, ge=1, le=90)):
     """Return top 50 Slack messages ranked by Gemini priority score."""
-    db = get_db()
-    dismissed = _dismissed_slack_ids(db)
-    cutoff = f"-{days} days"
+    with get_db_connection(readonly=True) as db:
+        dismissed = _dismissed_slack_ids(db)
+        cutoff = f"-{days} days"
 
-    # Check cache first
-    if not refresh:
-        cached = db.execute(
-            "SELECT data_json, generated_at FROM cached_slack_priorities ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        if cached:
-            data = json.loads(cached["data_json"])
-            data["items"] = [
-                item
-                for item in data.get("items", [])
-                if item["id"] not in dismissed and _ts_within_days(item.get("ts"), days)
-            ]
-            db.close()
-            return data
+        # Check cache first
+        if not refresh:
+            cached = db.execute(
+                "SELECT data_json, generated_at FROM cached_slack_priorities ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            if cached:
+                data = json.loads(cached["data_json"])
+                data["items"] = [
+                    item
+                    for item in data.get("items", [])
+                    if item["id"] not in dismissed and _ts_within_days(item.get("ts"), days)
+                ]
+                return data
 
-    # Fetch recent messages from DB
-    rows = db.execute(
-        "SELECT id, user_name, text, channel_name, channel_type, ts, is_mention, permalink "
-        "FROM slack_messages "
-        "WHERE datetime(ts, 'unixepoch') >= datetime('now', ?) "
-        "ORDER BY ts DESC LIMIT 100",
-        (cutoff,),
-    ).fetchall()
+        # Fetch recent messages from DB
+        rows = db.execute(
+            "SELECT id, user_name, text, channel_name, channel_type, ts, is_mention, permalink "
+            "FROM slack_messages "
+            "WHERE datetime(ts, 'unixepoch') >= datetime('now', ?) "
+            "ORDER BY ts DESC LIMIT 100",
+            (cutoff,),
+        ).fetchall()
 
     if not rows:
-        db.close()
         return {"items": [], "error": "No Slack messages synced yet"}
 
     messages_for_llm = [
@@ -306,7 +308,6 @@ def get_prioritized_slack(refresh: bool = Query(False), days: int = Query(7, ge=
     try:
         ranked = _rank_slack_with_gemini(messages_for_llm)
     except Exception as e:
-        db.close()
         return {"items": [], "error": str(e)}
 
     # Build lookup of full message data
@@ -342,12 +343,12 @@ def get_prioritized_slack(refresh: bool = Query(False), days: int = Query(7, ge=
 
     # Cache result (store full unfiltered set)
     all_items_result = {"items": items}
-    db.execute("DELETE FROM cached_slack_priorities")
-    db.execute(
-        "INSERT INTO cached_slack_priorities (data_json) VALUES (?)",
-        (json.dumps(all_items_result),),
-    )
-    db.commit()
-    db.close()
+    with get_write_db() as db:
+        db.execute("DELETE FROM cached_slack_priorities")
+        db.execute(
+            "INSERT INTO cached_slack_priorities (data_json) VALUES (?)",
+            (json.dumps(all_items_result),),
+        )
+        db.commit()
 
     return result

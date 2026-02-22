@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useEmployees, useCreateEmployee } from '../api/hooks';
+import { useEmployees, useCreateEmployee, useGroups } from '../api/hooks';
 import type { Employee } from '../api/types';
 
 function buildTree(employees: Employee[]): (Employee & { children: Employee[] })[] {
@@ -54,6 +54,7 @@ function TreeNode({
 
 export function OrgTreePage() {
   const { data: employees, isLoading } = useEmployees();
+  const { data: groups } = useGroups();
   const createEmployee = useCreateEmployee();
 
   const [showAddForm, setShowAddForm] = useState(false);
@@ -65,11 +66,11 @@ export function OrgTreePage() {
   if (isLoading) return <p className="empty-state">Loading...</p>;
 
   const all = employees ?? [];
-  const executives = all.filter((e) => e.group_name === 'exec');
-  const teamMembers = all.filter((e) => e.group_name === 'team');
-  const externalMembers = all.filter((e) => e.group_name === 'external');
-  const teamTree = buildTree(teamMembers);
-  const externalTree = buildTree(externalMembers);
+  const groupList = groups ?? ['team'];
+  const employeesByGroup = new Map<string, Employee[]>();
+  for (const group of groupList) {
+    employeesByGroup.set(group, all.filter(e => e.group_name === group));
+  }
 
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
@@ -127,15 +128,16 @@ export function OrgTreePage() {
           <div style={{ display: 'flex', gap: 'var(--space-md)', alignItems: 'center', marginTop: 'var(--space-xs)' }}>
             <label style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>
               Group:
-              <select
+              <input
+                list="group-options"
                 value={newGroup}
                 onChange={(e) => setNewGroup(e.target.value)}
-                style={{ marginLeft: 'var(--space-xs)' }}
-              >
-                <option value="team">Team</option>
-                <option value="exec">Exec</option>
-                <option value="external">External</option>
-              </select>
+                placeholder="team"
+                style={{ marginLeft: 'var(--space-xs)', width: '120px' }}
+              />
+              <datalist id="group-options">
+                {groupList.map(g => <option key={g} value={g} />)}
+              </datalist>
             </label>
             <label style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>
               Reports to:
@@ -155,39 +157,25 @@ export function OrgTreePage() {
         </form>
       )}
 
-      {executives.length > 0 && (
-        <>
-          <h2>Executive Team</h2>
-          <ul className="org-tree-list">
-            {executives.map((exec) => (
-              <li key={exec.id} className="org-tree-item">
-                <Link to={`/employees/${exec.id}`} className="org-tree-name">
-                  {exec.name}
-                </Link>
-                <span className="org-tree-title">{exec.title}</span>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-
-      <h2>Direct Reports</h2>
-      <ul className="org-tree-list">
-        {teamTree.map((node) => (
-          <TreeNode key={node.id} node={node} />
-        ))}
-      </ul>
-
-      {externalMembers.length > 0 && (
-        <>
-          <h2>External</h2>
-          <ul className="org-tree-list">
-            {externalTree.map((node) => (
-              <TreeNode key={node.id} node={node} />
-            ))}
-          </ul>
-        </>
-      )}
+      {groupList.map(group => {
+        const members = employeesByGroup.get(group) || [];
+        if (members.length === 0 && group !== 'team') return null;
+        const tree = buildTree(members);
+        return (
+          <div key={group}>
+            <h2 style={{ textTransform: 'capitalize' }}>{group}</h2>
+            {members.length > 0 ? (
+              <ul className="org-tree-list">
+                {tree.map((node) => (
+                  <TreeNode key={node.id} node={node} />
+                ))}
+              </ul>
+            ) : (
+              <p className="empty-state">No members yet.</p>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

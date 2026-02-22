@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, Link } from 'react-router-dom';
 import { usePrioritizedRamp, useRefreshPrioritizedRamp, useDismissPrioritizedItem, useCreateIssue, useRampBills, useAssignBillProject, useProjects, useCreateProject, useUpdateProject, useDeleteProject } from '../api/hooks';
 import type { RampBill, Project } from '../api/types';
 import { TimeAgo } from '../components/shared/TimeAgo';
@@ -109,7 +109,9 @@ function ExpensesTab() {
       </div>
 
       {isLoading && <p className="empty-state">Loading expenses...</p>}
-      {data?.error && <p className="empty-state">Error: {data.error}</p>}
+      {data?.error && <p className="empty-state">
+        Ramp is not connected. Add your API credentials in <Link to="/settings">Settings</Link> to see expenses.
+      </p>}
       {!isLoading && !data?.error && items.length === 0 && (
         <p className="empty-state">
           {hiddenCount > 0

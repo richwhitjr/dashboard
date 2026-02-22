@@ -1,21 +1,23 @@
 """Ramp expenses API — prioritized transaction list with Gemini ranking."""
 
 import json
-import os
 from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from database import get_db
+from app_config import get_prompt_context, get_secret
+from database import get_db_connection, get_write_db
 
 router = APIRouter(prefix="/api/ramp", tags=["ramp"])
 
 
-_RAMP_RANK_PROMPT = """\
-You are a priority-ranking assistant for Rich, the CTO of Osmo. You will receive a list of \
-recent company expenses from Ramp. Your job is to rank them by importance for Rich to review.
+def _build_ramp_rank_prompt() -> str:
+    ctx = get_prompt_context()
+    return f"""\
+You are a priority-ranking assistant {ctx}. You will receive a list of \
+recent company expenses from Ramp. Your job is to rank them by importance for the user to review.
 
 For each expense, assign a priority_score from 1-10 where:
 - 10: Requires immediate attention (policy violations, unusually large amounts, suspicious charges)
@@ -37,7 +39,7 @@ Order by priority_score descending. Return ALL expenses provided, scored."""
 
 def _rank_ramp_with_gemini(transactions: list[dict]) -> list[dict]:
     """Call Gemini to rank Ramp transactions by priority."""
-    api_key = os.environ.get("GEMINI_API_KEY", "")
+    api_key = get_secret("GEMINI_API_KEY") or ""
     if not api_key:
         return []
 
@@ -51,7 +53,7 @@ def _rank_ramp_with_gemini(transactions: list[dict]) -> list[dict]:
         model="gemini-2.0-flash",
         contents=user_message,
         config={
-            "system_instruction": _RAMP_RANK_PROMPT,
+            "system_instruction": _build_ramp_rank_prompt(),
             "temperature": 0.2,
             "response_mime_type": "application/json",
         },
@@ -90,49 +92,47 @@ def get_prioritized_ramp(
     org_only: bool = Query(True),
 ):
     """Return Ramp transactions ranked by Gemini priority score."""
-    db = get_db()
-    dismissed = _dismissed_ramp_ids(db)
-    cutoff = f"-{days} days"
+    with get_db_connection(readonly=True) as db:
+        dismissed = _dismissed_ramp_ids(db)
+        cutoff = f"-{days} days"
 
-    # Check cache first (only for org_only=True, the default view)
-    if not refresh and org_only:
-        cached = db.execute(
-            "SELECT data_json, generated_at FROM cached_ramp_priorities ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        if cached:
-            data = json.loads(cached["data_json"])
-            data["items"] = [
-                item
-                for item in data.get("items", [])
-                if item["id"] not in dismissed and _txn_within_days(item.get("transaction_date"), days)
-            ]
-            data["total_amount"] = sum(item.get("amount", 0) for item in data["items"])
-            db.close()
-            return data
+        # Check cache first (only for org_only=True, the default view)
+        if not refresh and org_only:
+            cached = db.execute(
+                "SELECT data_json, generated_at FROM cached_ramp_priorities ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            if cached:
+                data = json.loads(cached["data_json"])
+                data["items"] = [
+                    item
+                    for item in data.get("items", [])
+                    if item["id"] not in dismissed and _txn_within_days(item.get("transaction_date"), days)
+                ]
+                data["total_amount"] = sum(item.get("amount", 0) for item in data["items"])
+                return data
 
-    # Fetch recent transactions from DB
-    if org_only:
-        rows = db.execute(
-            "SELECT DISTINCT t.id, t.amount, t.currency, t.merchant_name, t.category, t.transaction_date, "
-            "t.cardholder_name, t.cardholder_email, t.memo, t.status, t.ramp_url "
-            "FROM ramp_transactions t "
-            "INNER JOIN employees e ON lower(t.cardholder_name) = lower(e.name) "
-            "WHERE datetime(t.transaction_date) >= datetime('now', ?) "
-            "ORDER BY t.amount DESC LIMIT 200",
-            (cutoff,),
-        ).fetchall()
-    else:
-        rows = db.execute(
-            "SELECT id, amount, currency, merchant_name, category, transaction_date, "
-            "cardholder_name, cardholder_email, memo, status, ramp_url "
-            "FROM ramp_transactions "
-            "WHERE datetime(transaction_date) >= datetime('now', ?) "
-            "ORDER BY amount DESC LIMIT 200",
-            (cutoff,),
-        ).fetchall()
+        # Fetch recent transactions from DB
+        if org_only:
+            rows = db.execute(
+                "SELECT DISTINCT t.id, t.amount, t.currency, t.merchant_name, t.category, t.transaction_date, "
+                "t.cardholder_name, t.cardholder_email, t.memo, t.status, t.ramp_url "
+                "FROM ramp_transactions t "
+                "INNER JOIN employees e ON lower(t.cardholder_name) = lower(e.name) "
+                "WHERE datetime(t.transaction_date) >= datetime('now', ?) "
+                "ORDER BY t.amount DESC LIMIT 200",
+                (cutoff,),
+            ).fetchall()
+        else:
+            rows = db.execute(
+                "SELECT id, amount, currency, merchant_name, category, transaction_date, "
+                "cardholder_name, cardholder_email, memo, status, ramp_url "
+                "FROM ramp_transactions "
+                "WHERE datetime(transaction_date) >= datetime('now', ?) "
+                "ORDER BY amount DESC LIMIT 200",
+                (cutoff,),
+            ).fetchall()
 
     if not rows:
-        db.close()
         return {
             "items": [],
             "total_amount": 0,
@@ -165,7 +165,6 @@ def get_prioritized_ramp(
             items.append(d)
         items = [i for i in items if i["id"] not in dismissed][:50]
         total = sum(i["amount"] for i in items)
-        db.close()
         return {"items": items, "total_amount": total, "error": f"Gemini unavailable, sorted by amount: {e}"}
 
     # If Gemini returned nothing, fallback to amount sort
@@ -178,7 +177,6 @@ def get_prioritized_ramp(
             items.append(d)
         items = [i for i in items if i["id"] not in dismissed][:50]
         total = sum(i["amount"] for i in items)
-        db.close()
         return {"items": items, "total_amount": total}
 
     # Build lookup of full transaction data
@@ -218,13 +216,13 @@ def get_prioritized_ramp(
 
     # Cache result (only for the default org_only view)
     if org_only:
-        db.execute("DELETE FROM cached_ramp_priorities")
-        db.execute(
-            "INSERT INTO cached_ramp_priorities (data_json) VALUES (?)",
-            (json.dumps(result, default=str),),
-        )
-        db.commit()
-    db.close()
+        with get_write_db() as db:
+            db.execute("DELETE FROM cached_ramp_priorities")
+            db.execute(
+                "INSERT INTO cached_ramp_priorities (data_json) VALUES (?)",
+                (json.dumps(result, default=str),),
+            )
+            db.commit()
 
     return result
 
@@ -237,7 +235,6 @@ def get_ramp_bills(
     vendor_id: Optional[str] = Query(None),
 ):
     """Return Ramp bills ordered by due date descending."""
-    db = get_db()
     conditions = ["datetime(b.issued_at) >= datetime('now', ?)"]
     params: list = [f"-{days} days"]
 
@@ -252,42 +249,41 @@ def get_ramp_bills(
         params.append(vendor_id)
 
     where = " AND ".join(conditions)
-    rows = db.execute(
-        f"""SELECT b.id, b.vendor_id, b.vendor_name, b.amount, b.currency,
-               b.due_at, b.issued_at, b.paid_at, b.invoice_number, b.memo,
-               b.status, b.approval_status, b.payment_status, b.payment_method,
-               b.project_id, b.ramp_url,
-               p.name as project_name
-           FROM ramp_bills b
-           LEFT JOIN projects p ON p.id = b.project_id
-           WHERE {where}
-           ORDER BY b.due_at DESC, b.issued_at DESC
-           LIMIT 500""",
-        params,
-    ).fetchall()
-    db.close()
+    with get_db_connection(readonly=True) as db:
+        rows = db.execute(
+            f"""SELECT b.id, b.vendor_id, b.vendor_name, b.amount, b.currency,
+                   b.due_at, b.issued_at, b.paid_at, b.invoice_number, b.memo,
+                   b.status, b.approval_status, b.payment_status, b.payment_method,
+                   b.project_id, b.ramp_url,
+                   p.name as project_name
+               FROM ramp_bills b
+               LEFT JOIN projects p ON p.id = b.project_id
+               WHERE {where}
+               ORDER BY b.due_at DESC, b.issued_at DESC
+               LIMIT 500""",
+            params,
+        ).fetchall()
     return {"bills": [dict(r) for r in rows], "total": len(rows)}
 
 
 @router.get("/bills/summary")
 def get_ramp_bills_summary(days: int = Query(365, ge=1, le=1095)):
     """Return bills aggregated by vendor."""
-    db = get_db()
-    rows = db.execute(
-        """SELECT b.vendor_id, b.vendor_name,
-               COUNT(*) as bill_count,
-               COALESCE(SUM(b.amount), 0) as total_amount,
-               COALESCE(SUM(CASE WHEN b.payment_status IN ('PAID','PAYMENT_COMPLETED')
-                   THEN b.amount ELSE 0 END), 0) as paid_amount,
-               COALESCE(SUM(CASE WHEN b.payment_status NOT IN ('PAID','PAYMENT_COMPLETED')
-                   THEN b.amount ELSE 0 END), 0) as pending_amount
-           FROM ramp_bills b
-           WHERE datetime(b.issued_at) >= datetime('now', ?)
-           GROUP BY b.vendor_id, b.vendor_name
-           ORDER BY total_amount DESC""",
-        (f"-{days} days",),
-    ).fetchall()
-    db.close()
+    with get_db_connection(readonly=True) as db:
+        rows = db.execute(
+            """SELECT b.vendor_id, b.vendor_name,
+                   COUNT(*) as bill_count,
+                   COALESCE(SUM(b.amount), 0) as total_amount,
+                   COALESCE(SUM(CASE WHEN b.payment_status IN ('PAID','PAYMENT_COMPLETED')
+                       THEN b.amount ELSE 0 END), 0) as paid_amount,
+                   COALESCE(SUM(CASE WHEN b.payment_status NOT IN ('PAID','PAYMENT_COMPLETED')
+                       THEN b.amount ELSE 0 END), 0) as pending_amount
+               FROM ramp_bills b
+               WHERE datetime(b.issued_at) >= datetime('now', ?)
+               GROUP BY b.vendor_id, b.vendor_name
+               ORDER BY total_amount DESC""",
+            (f"-{days} days",),
+        ).fetchall()
     return {"vendors": [dict(r) for r in rows]}
 
 
@@ -298,12 +294,10 @@ class BillProjectAssignment(BaseModel):
 @router.patch("/bills/{bill_id}/project")
 def assign_bill_project(bill_id: str, body: BillProjectAssignment):
     """Assign or unassign a bill to a project."""
-    db = get_db()
-    row = db.execute("SELECT id FROM ramp_bills WHERE id = ?", (bill_id,)).fetchone()
-    if not row:
-        db.close()
-        raise HTTPException(status_code=404, detail="Bill not found")
-    db.execute("UPDATE ramp_bills SET project_id = ? WHERE id = ?", (body.project_id, bill_id))
-    db.commit()
-    db.close()
+    with get_write_db() as db:
+        row = db.execute("SELECT id FROM ramp_bills WHERE id = ?", (bill_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Bill not found")
+        db.execute("UPDATE ramp_bills SET project_id = ? WHERE id = ?", (body.project_id, bill_id))
+        db.commit()
     return {"ok": True, "bill_id": bill_id, "project_id": body.project_id}

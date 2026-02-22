@@ -33,6 +33,22 @@ export function openExternal(url: string) {
   }
 }
 
+async function uploadFile<T>(path: string, file: File): Promise<T> {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: 'POST',
+    body: form,
+    // No Content-Type header — browser sets multipart boundary automatically
+  });
+  if (!res.ok) {
+    const msg = `${res.status} ${res.statusText} — POST ${path}`;
+    addError('api', msg);
+    throw new Error(`API error: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
 
@@ -43,4 +59,6 @@ export const api = {
     request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
 
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+
+  upload: <T>(path: string, file: File) => uploadFile<T>(path, file),
 };

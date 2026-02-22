@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useMeetings, useUpsertMeetingNote, useDeleteMeetingNote, useDismissPrioritizedItem } from '../api/hooks';
+import { useMeetings, useUpsertMeetingNote, useDeleteMeetingNote, useDismissPrioritizedItem, useProfile } from '../api/hooks';
 import type { MeetingWithContext } from '../api/types';
 import { useFocusNavigation } from '../hooks/useFocusNavigation';
 import { KeyboardHints } from '../components/shared/KeyboardHints';
+import { sanitizeHtml } from '../utils/sanitize';
 
 function formatMeetingTime(startTime: string, endTime: string | null): string {
   const start = new Date(startTime);
@@ -184,7 +185,7 @@ function MeetingModal({
             {meeting.granola_summary_html ? (
               <div
                 className="markdown-content"
-                dangerouslySetInnerHTML={{ __html: meeting.granola_summary_html }}
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(meeting.granola_summary_html) }}
               />
             ) : (
               <div style={{ whiteSpace: 'pre-wrap' }}>
@@ -226,6 +227,7 @@ function MeetingRow({
 }) {
   const upsertNote = useUpsertMeetingNote();
   const deleteNote = useDeleteMeetingNote();
+  const { data: profile } = useProfile();
   const [editing, setEditing] = useState(false);
   const [noteText, setNoteText] = useState(meeting.note_content || '');
   const [expanded, setExpanded] = useState(false);
@@ -233,9 +235,10 @@ function MeetingRow({
   const refType = meeting.event_id ? 'calendar' : 'granola';
   const refId = (meeting.event_id || meeting.granola_id)!;
 
+  const userEmail = profile?.user_email;
   const attendees = parseAttendees(meeting.attendees_json);
   const attendeeNames = attendees
-    .filter((a) => !a.email?.includes('rich'))
+    .filter((a) => !userEmail || !a.email?.includes(userEmail.split('@')[0]))
     .map((a) => a.name || a.email?.split('@')[0] || '')
     .filter(Boolean);
 
@@ -331,7 +334,7 @@ function MeetingRow({
               {meeting.granola_summary_html ? (
                 <div
                   className="markdown-content"
-                  dangerouslySetInnerHTML={{ __html: meeting.granola_summary_html }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(meeting.granola_summary_html) }}
                 />
               ) : (
                 <div style={{ whiteSpace: 'pre-wrap' }}>

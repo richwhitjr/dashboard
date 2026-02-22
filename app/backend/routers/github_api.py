@@ -5,11 +5,22 @@ from typing import Optional
 import httpx
 from fastapi import APIRouter, HTTPException, Query
 
-from config import GITHUB_REPO
+from config import get_github_repo
 
 router = APIRouter(prefix="/api/github", tags=["github"])
 
 GITHUB_API_BASE = "https://api.github.com"
+
+
+def _require_repo() -> str:
+    """Return the configured repo or raise 400 if not set."""
+    repo = get_github_repo()
+    if not repo:
+        raise HTTPException(
+            status_code=400,
+            detail="No GitHub repo configured. Set github_repo in your profile settings.",
+        )
+    return repo
 
 
 def _get_headers() -> dict:
@@ -79,7 +90,7 @@ def list_pulls(
                 from connectors.github import _get_username
 
                 username = _get_username(client)
-                q_parts = [f"is:pr is:open review-requested:{username} repo:{GITHUB_REPO}"]
+                q_parts = [f"is:pr is:open review-requested:{username} repo:{_require_repo()}"]
                 if author:
                     q_parts.append(f"author:{author}")
                 resp = client.get(
@@ -109,7 +120,7 @@ def list_pulls(
                     "page": page,
                 }
                 resp = client.get(
-                    f"{GITHUB_API_BASE}/repos/{GITHUB_REPO}/pulls",
+                    f"{GITHUB_API_BASE}/repos/{_require_repo()}/pulls",
                     headers=headers,
                     params=params,
                 )
@@ -134,7 +145,7 @@ def get_pull(number: int):
         with httpx.Client(timeout=30) as client:
             # Fetch PR detail (includes additions/deletions/changed_files)
             pr_resp = client.get(
-                f"{GITHUB_API_BASE}/repos/{GITHUB_REPO}/pulls/{number}",
+                f"{GITHUB_API_BASE}/repos/{_require_repo()}/pulls/{number}",
                 headers=headers,
             )
             pr_resp.raise_for_status()
@@ -142,7 +153,7 @@ def get_pull(number: int):
 
             # Fetch reviews
             reviews_resp = client.get(
-                f"{GITHUB_API_BASE}/repos/{GITHUB_REPO}/pulls/{number}/reviews",
+                f"{GITHUB_API_BASE}/repos/{_require_repo()}/pulls/{number}/reviews",
                 headers=headers,
                 params={"per_page": 50},
             )
@@ -158,7 +169,7 @@ def get_pull(number: int):
 
             # Fetch changed files (first 30)
             files_resp = client.get(
-                f"{GITHUB_API_BASE}/repos/{GITHUB_REPO}/pulls/{number}/files",
+                f"{GITHUB_API_BASE}/repos/{_require_repo()}/pulls/{number}/files",
                 headers=headers,
                 params={"per_page": 30},
             )
@@ -189,7 +200,7 @@ def get_pull(number: int):
         return result
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
-            raise HTTPException(status_code=404, detail=f"PR #{number} not found in {GITHUB_REPO}")
+            raise HTTPException(status_code=404, detail=f"PR #{number} not found in {_require_repo()}")
         raise HTTPException(status_code=e.response.status_code, detail=f"GitHub API error: {e.response.text[:500]}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"GitHub request failed: {e}")
@@ -205,7 +216,7 @@ def search_github(
     """Search issues and pull requests in the repo."""
     headers = _get_headers()
 
-    q_parts = [q, f"repo:{GITHUB_REPO}"]
+    q_parts = [q, f"repo:{_require_repo()}"]
     if type == "pr":
         q_parts.append("is:pr")
     elif type == "issue":
@@ -251,7 +262,7 @@ def search_code(
                 f"{GITHUB_API_BASE}/search/code",
                 headers=headers,
                 params={
-                    "q": f"{q} repo:{GITHUB_REPO}",
+                    "q": f"{q} repo:{_require_repo()}",
                     "per_page": per_page,
                 },
             )

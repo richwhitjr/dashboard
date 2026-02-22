@@ -6,7 +6,7 @@ from googleapiclient.discovery import build
 
 from config import GMAIL_MAX_RESULTS
 from connectors.google_auth import get_google_credentials
-from database import get_db
+from database import batch_upsert, get_write_db
 
 
 def sync_gmail_messages() -> int:
@@ -19,9 +19,7 @@ def sync_gmail_messages() -> int:
     if not messages:
         return 0
 
-    db = get_db()
-
-    # Batch fetch all messages in a single HTTP request instead of N sequential calls
+    # Phase 1: Batch fetch all messages in a single HTTP request (no DB connection held)
     fetched: list[dict] = []
 
     def _on_message(request_id, response, exception):
@@ -37,7 +35,8 @@ def sync_gmail_messages() -> int:
         )
     batch.execute()
 
-    count = 0
+    # Phase 2: Build rows
+    rows = []
     for msg in fetched:
         headers = {h["name"]: h["value"] for h in msg.get("payload", {}).get("headers", [])}
 
@@ -47,11 +46,7 @@ def sync_gmail_messages() -> int:
         labels = msg.get("labelIds", [])
         is_unread = "UNREAD" in labels
 
-        db.execute(
-            """INSERT OR REPLACE INTO emails
-               (id, thread_id, subject, snippet, from_name, from_email, to_emails, date,
-                labels_json, is_unread, body_preview)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        rows.append(
             (
                 msg["id"],
                 msg.get("threadId", ""),
@@ -64,13 +59,21 @@ def sync_gmail_messages() -> int:
                 json.dumps(labels),
                 int(is_unread),
                 msg.get("snippet", "")[:500],
-            ),
+            )
         )
-        count += 1
 
-    db.commit()
-    db.close()
-    return count
+    # Phase 3: Write in batches
+    with get_write_db() as db:
+        batch_upsert(
+            db,
+            """INSERT OR REPLACE INTO emails
+               (id, thread_id, subject, snippet, from_name, from_email, to_emails, date,
+                labels_json, is_unread, body_preview)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows,
+        )
+
+    return len(rows)
 
 
 def _parse_email_header(header: str) -> tuple[str, str]:

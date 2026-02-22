@@ -6,7 +6,7 @@ import ssl
 import certifi
 
 from config import SLACK_MESSAGE_LIMIT
-from database import get_db
+from database import batch_upsert, get_write_db
 
 try:
     from slack_sdk import WebClient
@@ -18,18 +18,11 @@ except ImportError:
 
 
 def _get_client() -> "WebClient":
-    token = os.environ.get("SLACK_TOKEN", "")
-    if not token:
-        from pathlib import Path
+    from app_config import get_secret
 
-        env_path = Path(__file__).parent.parent / ".env"
-        if env_path.exists():
-            for line in env_path.read_text().splitlines():
-                if line.startswith("SLACK_TOKEN="):
-                    token = line.split("=", 1)[1].strip().strip('"')
-                    break
+    token = get_secret("SLACK_TOKEN") or ""
     if not token:
-        raise ValueError("SLACK_TOKEN not set. Add it to app/backend/.env")
+        raise ValueError("SLACK_TOKEN not configured. Add it in Settings or set the environment variable.")
     ssl_context = ssl.create_default_context(cafile=certifi.where())
     return WebClient(token=token, ssl=ssl_context)
 
@@ -44,7 +37,7 @@ def _make_permalink(base_url: str, channel_id: str, ts: str) -> str:
     """Construct a Slack permalink locally without an API call.
 
     Format: {workspace_url}archives/{channel_id}/p{ts_without_dot}
-    e.g. https://osmo.slack.com/archives/D123456/p1234567890123456
+    e.g. https://myworkspace.slack.com/archives/D123456/p1234567890123456
     """
     ts_int = ts.replace(".", "")
     return f"{base_url.rstrip('/')}/archives/{channel_id}/p{ts_int}"
@@ -57,10 +50,10 @@ def sync_slack_data() -> int:
     client = _get_client()
     user = _get_user_info(client)
     my_user_id = user["user_id"]
-    base_url = user["url"]  # e.g. "https://osmo.slack.com/"
+    base_url = user["url"]  # e.g. "https://myworkspace.slack.com/"
 
-    db = get_db()
-    count = 0
+    # Phase 1: Fetch all data from Slack API (no DB connection held)
+    rows = []
 
     # Cache user display names: user_id -> display_name (avoids duplicate users_info calls)
     user_name_cache: dict[str, str] = {}
@@ -89,11 +82,7 @@ def sync_slack_data() -> int:
                     ts = msg["ts"]
                     permalink = _make_permalink(base_url, ch["id"], ts) if base_url else None
 
-                    db.execute(
-                        """INSERT OR REPLACE INTO slack_messages
-                           (id, channel_id, channel_name, channel_type, user_id, user_name,
-                            text, ts, thread_ts, permalink, is_mention)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    rows.append(
                         (
                             f"{ch['id']}_{ts}",
                             ch["id"],
@@ -106,9 +95,8 @@ def sync_slack_data() -> int:
                             msg.get("thread_ts"),
                             permalink,
                             0,
-                        ),
+                        )
                     )
-                    count += 1
             except Exception:
                 continue
     except Exception:
@@ -119,11 +107,7 @@ def sync_slack_data() -> int:
         search_result = client.search_messages(query=f"<@{my_user_id}>", count=SLACK_MESSAGE_LIMIT)
         for match in search_result.get("messages", {}).get("matches", []):
             channel = match.get("channel", {})
-            db.execute(
-                """INSERT OR REPLACE INTO slack_messages
-                   (id, channel_id, channel_name, channel_type, user_id, user_name,
-                    text, ts, thread_ts, permalink, is_mention)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows.append(
                 (
                     f"{channel.get('id', '')}_{match.get('ts', '')}",
                     channel.get("id", ""),
@@ -136,12 +120,20 @@ def sync_slack_data() -> int:
                     match.get("thread_ts"),
                     match.get("permalink"),
                     1,
-                ),
+                )
             )
-            count += 1
     except Exception:
         pass
 
-    db.commit()
-    db.close()
-    return count
+    # Phase 2: Write to DB in batches (short lock windows)
+    with get_write_db() as db:
+        batch_upsert(
+            db,
+            """INSERT OR REPLACE INTO slack_messages
+               (id, channel_id, channel_name, channel_type, user_id, user_name,
+                text, ts, thread_ts, permalink, is_mention)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows,
+        )
+
+    return len(rows)

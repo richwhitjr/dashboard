@@ -63,7 +63,7 @@ export function NewsFeed() {
 
   return (
     <div className="news-feed" ref={containerRef}>
-      <div className="news-count">{total} articles</div>
+      <div className="news-count"><span className="count-badge">{total}</span> articles</div>
       {allItems.map((item) => (
         <div key={item.id} className="news-item">
           <div className="news-item-header">

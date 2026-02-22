@@ -6,6 +6,7 @@ import { detectEmployees } from '../utils/detectEmployees';
 import { parseIssuePrefix } from '../utils/parseIssuePrefix';
 import { MarkdownRenderer } from './shared/MarkdownRenderer';
 import { SHORTCUT_DEFINITIONS } from '../hooks/useKeyboardShortcuts';
+import { sanitizeHtml } from '../utils/sanitize';
 
 type FlatResult = {
   category: string;
@@ -216,13 +217,14 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
 
     // Notes
     for (const note of r.notes ?? []) {
-      const prefix = note.is_one_on_one ? '[1:1] ' : note.text.startsWith('[t]') ? '[thought] ' : '';
       const isThought = note.text.startsWith('[t]') || note.text.startsWith('[T]');
+      const cleanText = note.text.replace(/^\[[tT1]\]\s*/, '');
+      const prefix = note.is_one_on_one ? '[1:1] ' : isThought ? '~ ' : '';
       flat.push({
         category: 'Notes',
         type: 'note',
         id: String(note.id),
-        label: `${prefix}${note.text.slice(0, 100)}`,
+        label: `${prefix}${cleanText.slice(0, 100)}`,
         sublabel: note.employee_name ?? undefined,
         navigateTo: isThought ? `/thoughts?noteId=${note.id}` : `/notes?noteId=${note.id}`,
         highlightHtml: note.text_hl,
@@ -704,11 +706,11 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
             )}
             <div className="search-preview-content">
               {preview.fullHtml ? (
-                <div dangerouslySetInnerHTML={{ __html: preview.fullHtml }} />
+                <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(preview.fullHtml) }} />
               ) : preview.fullText ? (
                 <MarkdownRenderer content={preview.fullText} />
               ) : preview.snippet ? (
-                <div dangerouslySetInnerHTML={{ __html: preview.snippet }} />
+                <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(preview.snippet) }} />
               ) : (
                 <p className="empty-state">No preview available.</p>
               )}
@@ -748,7 +750,7 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
                         <div className="search-result-main">
                           <span className="search-result-label">
                             {item.highlightHtml ? (
-                              <span dangerouslySetInnerHTML={{ __html: item.highlightHtml }} />
+                              <span dangerouslySetInnerHTML={{ __html: sanitizeHtml(item.highlightHtml) }} />
                             ) : (
                               item.label
                             )}
@@ -763,7 +765,7 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
                         {item.snippet && (
                           <div
                             className="search-result-snippet"
-                            dangerouslySetInnerHTML={{ __html: item.snippet }}
+                            dangerouslySetInnerHTML={{ __html: sanitizeHtml(item.snippet) }}
                           />
                         )}
                       </div>

@@ -9,6 +9,7 @@ dist-ssr/
 # Environment & secrets
 .env
 .google_token.json
+config.json
 
 # Database
 *.db
@@ -36,12 +37,18 @@ __pycache__/
 test-results/
 playwright-report/
 
+# User data (created at runtime)
+teams/
+executives/
+hidden/
+projects/
+dashboard.json
 
+# Backend specifics
 app/backend/venv/
 app/backend/.env
 app/backend/.google_token.json
 app/backend/__pycache__/
 app/backend/**/__pycache__/
-app/database/rich.db
 app/frontend/node_modules/
 app/frontend/dist/

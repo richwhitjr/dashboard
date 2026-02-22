@@ -1,10 +1,10 @@
 import json
-import os
 from datetime import datetime
 
 from fastapi import APIRouter, Query
 
-from database import get_db
+from app_config import get_prompt_context, get_secret
+from database import get_db_connection, get_write_db
 
 router = APIRouter(prefix="/api/news", tags=["news"])
 
@@ -15,18 +15,15 @@ def get_news(
     limit: int = Query(20, ge=1, le=100),
 ):
     """Return paginated news items, newest first."""
-    db = get_db()
+    with get_db_connection(readonly=True) as db:
+        rows = db.execute(
+            """SELECT * FROM news_items
+               ORDER BY COALESCE(published_at, found_at) DESC
+               LIMIT ? OFFSET ?""",
+            (limit, offset),
+        ).fetchall()
 
-    rows = db.execute(
-        """SELECT * FROM news_items
-           ORDER BY COALESCE(published_at, found_at) DESC
-           LIMIT ? OFFSET ?""",
-        (limit, offset),
-    ).fetchall()
-
-    total = db.execute("SELECT COUNT(*) as count FROM news_items").fetchone()["count"]
-
-    db.close()
+        total = db.execute("SELECT COUNT(*) as count FROM news_items").fetchone()["count"]
 
     return {
         "items": [dict(r) for r in rows],
@@ -39,25 +36,27 @@ def get_news(
 
 # --- Gemini-ranked news ---
 
-_NEWS_RANK_PROMPT = """\
-You are a priority-ranking assistant for Rich, the CTO of Osmo (a Series B chemical/scent \
-technology company using AI and machine learning for molecular design and digital olfaction).
 
-You will receive a list of recent news articles. Rank them by relevance and importance to Rich.
+def _build_news_rank_prompt() -> str:
+    ctx = get_prompt_context()
+    return f"""\
+You are a priority-ranking assistant {ctx}.
+
+You will receive a list of recent news articles. Rank them by relevance and importance to the user.
 
 For each article, assign a priority_score from 1-10 where:
-- 10: Directly about Osmo, digital olfaction, or a major competitor
-- 7-9: Highly relevant (AI in chemistry, computational molecular design, scent tech breakthroughs, \
-key industry moves, Series B/startup scaling insights from top sources)
-- 4-6: Moderately relevant (general AI/ML advances, chemical industry news, startup/CTO content, \
+- 10: Directly about the user's company, its core technology, or a major competitor
+- 7-9: Highly relevant (industry breakthroughs, key moves in the user's domain, \
+scaling insights from top sources)
+- 4-6: Moderately relevant (general advances in the user's field, industry news, leadership content, \
 interesting tech trends)
 - 1-3: Low relevance (generic tech news, unrelated industries, clickbait, automated aggregator junk)
 
 Consider:
-1. Articles about olfaction, scent, fragrance tech, or molecular design are top priority
-2. AI/ML applied to chemistry or biology is high priority
-3. Startup leadership, scaling engineering orgs, CTO-relevant content is medium-high
-4. General tech/AI news is medium
+1. Articles directly related to the user's company or industry are top priority
+2. AI/ML and technology applied to the user's domain is high priority
+3. Leadership, scaling, and role-relevant content is medium-high
+4. General tech news is medium
 5. Clickbait, listicles, and generic business news are low
 6. Duplicate or near-duplicate articles should score lower
 
@@ -67,7 +66,7 @@ Order by priority_score descending. Return ALL articles provided, scored."""
 
 def _rank_news_with_gemini(articles: list[dict]) -> list[dict]:
     """Call Gemini to rank news articles by priority."""
-    api_key = os.environ.get("GEMINI_API_KEY", "")
+    api_key = get_secret("GEMINI_API_KEY") or ""
     if not api_key:
         return []
 
@@ -81,7 +80,7 @@ def _rank_news_with_gemini(articles: list[dict]) -> list[dict]:
         model="gemini-2.0-flash",
         contents=user_message,
         config={
-            "system_instruction": _NEWS_RANK_PROMPT,
+            "system_instruction": _build_news_rank_prompt(),
             "temperature": 0.2,
             "response_mime_type": "application/json",
         },
@@ -116,37 +115,35 @@ def _published_within_days(published_at: str | None, days: int) -> bool:
 @router.get("/prioritized")
 def get_prioritized_news(refresh: bool = Query(False), days: int = Query(14, ge=1, le=90)):
     """Return news articles ranked by Gemini priority score."""
-    db = get_db()
-    dismissed = _dismissed_news_ids(db)
-    cutoff = f"-{days} days"
+    with get_db_connection(readonly=True) as db:
+        dismissed = _dismissed_news_ids(db)
+        cutoff = f"-{days} days"
 
-    # Check cache first
-    if not refresh:
-        cached = db.execute(
-            "SELECT data_json, generated_at FROM cached_news_priorities ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        if cached:
-            data = json.loads(cached["data_json"])
-            data["items"] = [
-                item
-                for item in data.get("items", [])
-                if item["id"] not in dismissed and _published_within_days(item.get("published_at"), days)
-            ]
-            db.close()
-            return data
+        # Check cache first
+        if not refresh:
+            cached = db.execute(
+                "SELECT data_json, generated_at FROM cached_news_priorities ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            if cached:
+                data = json.loads(cached["data_json"])
+                data["items"] = [
+                    item
+                    for item in data.get("items", [])
+                    if item["id"] not in dismissed and _published_within_days(item.get("published_at"), days)
+                ]
+                return data
 
-    # Fetch recent news from DB
-    rows = db.execute(
-        """SELECT id, title, url, source, source_detail, domain, snippet, published_at, found_at
-           FROM news_items
-           WHERE COALESCE(published_at, found_at) >= datetime('now', ?)
-           ORDER BY COALESCE(published_at, found_at) DESC
-           LIMIT 150""",
-        (cutoff,),
-    ).fetchall()
+        # Fetch recent news from DB
+        rows = db.execute(
+            """SELECT id, title, url, source, source_detail, domain, snippet, published_at, found_at
+               FROM news_items
+               WHERE COALESCE(published_at, found_at) >= datetime('now', ?)
+               ORDER BY COALESCE(published_at, found_at) DESC
+               LIMIT 150""",
+            (cutoff,),
+        ).fetchall()
 
     if not rows:
-        db.close()
         return {"items": [], "error": "No news items synced yet"}
 
     articles_for_llm = [
@@ -163,7 +160,6 @@ def get_prioritized_news(refresh: bool = Query(False), days: int = Query(14, ge=
     try:
         ranked = _rank_news_with_gemini(articles_for_llm)
     except Exception as e:
-        db.close()
         return {"items": [], "error": str(e)}
 
     # Build lookup of full article data
@@ -199,12 +195,12 @@ def get_prioritized_news(refresh: bool = Query(False), days: int = Query(14, ge=
     result = {"items": items}
 
     # Cache result
-    db.execute("DELETE FROM cached_news_priorities")
-    db.execute(
-        "INSERT INTO cached_news_priorities (data_json) VALUES (?)",
-        (json.dumps(result),),
-    )
-    db.commit()
-    db.close()
+    with get_write_db() as db:
+        db.execute("DELETE FROM cached_news_priorities")
+        db.execute(
+            "INSERT INTO cached_news_priorities (data_json) VALUES (?)",
+            (json.dumps(result),),
+        )
+        db.commit()
 
     return result

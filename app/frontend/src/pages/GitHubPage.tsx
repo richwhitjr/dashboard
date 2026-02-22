@@ -52,7 +52,7 @@ export function GitHubPage() {
     <div ref={containerRef}>
       <h1>GitHub</h1>
       <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', marginBottom: 'var(--space-md)' }}>
-        osmoai/osmo
+        Pull Requests &amp; Code Search
       </p>
 
       <div className="github-tabs">
@@ -62,7 +62,7 @@ export function GitHubPage() {
         >
           Review Requests
           {reviewPulls.data?.count ? (
-            <span className="github-tab-count">{reviewPulls.data.count}</span>
+            <span className="github-tab-count">({reviewPulls.data.count})</span>
           ) : null}
         </button>
         <button
@@ -71,7 +71,7 @@ export function GitHubPage() {
         >
           Open PRs
           {openPulls.data?.count ? (
-            <span className="github-tab-count">{openPulls.data.count}</span>
+            <span className="github-tab-count">({openPulls.data.count})</span>
           ) : null}
         </button>
         <button

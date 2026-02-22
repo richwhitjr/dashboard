@@ -8,7 +8,7 @@ import { KeyboardHelp } from './components/KeyboardHelp';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { UndoToast, getUndoTrigger } from './components/UndoToast';
 import { SyncProgressOverlay } from './components/SyncProgressOverlay';
-import { useSync } from './api/hooks';
+import { useSync, useSetupStatus } from './api/hooks';
 import { DashboardPage } from './pages/DashboardPage';
 import { NotePage } from './pages/NotePage';
 import { EmployeePage } from './pages/EmployeePage';
@@ -26,6 +26,8 @@ import { NotionPage } from './pages/NotionPage';
 import { EmailPage } from './pages/EmailPage';
 import { RampPage } from './pages/RampPage';
 import { HelpPage } from './pages/HelpPage';
+import { SetupPage } from './pages/SetupPage';
+import { PersonasPage } from './pages/PersonasPage';
 import './styles/tufte.css';
 
 const queryClient = new QueryClient({
@@ -37,6 +39,15 @@ const queryClient = new QueryClient({
   },
 });
 
+function RootRedirect() {
+  const { data: setupStatus, isLoading } = useSetupStatus();
+  if (isLoading) return null;
+  if (setupStatus && !setupStatus.setup_complete) {
+    return <Navigate to="/setup" replace />;
+  }
+  return <DashboardPage />;
+}
+
 function AppContent() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -45,6 +56,7 @@ function AppContent() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const isClaudePage = location.pathname === '/claude';
+  const isSetupPage = location.pathname === '/setup';
 
   useKeyboardShortcuts({
     navigate,
@@ -56,6 +68,17 @@ function AppContent() {
     suppressWhen: searchOpen || helpOpen,
   });
 
+  // Setup page gets full-width layout without sidebar
+  if (isSetupPage) {
+    return (
+      <main className="main" style={{ marginLeft: 0 }}>
+        <Routes>
+          <Route path="/setup" element={<SetupPage />} />
+        </Routes>
+      </main>
+    );
+  }
+
   return (
     <>
       <div className="app-layout">
@@ -63,7 +86,7 @@ function AppContent() {
         <main className="main">
           <Routes>
             <Route path="/help" element={<HelpPage />} />
-            <Route path="/" element={!localStorage.getItem('hasSeenIntro') ? <Navigate to="/help" replace /> : <DashboardPage />} />
+            <Route path="/" element={<RootRedirect />} />
             <Route path="/priorities" element={<PrioritiesPage />} />
             <Route path="/notes" element={<NotePage />} />
             <Route path="/thoughts" element={<ThoughtsPage />} />
@@ -80,6 +103,7 @@ function AppContent() {
             <Route path="/ramp/bills" element={<RampPage />} />
             <Route path="/ramp/projects" element={<RampPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/personas" element={<PersonasPage />} />
             <Route path="/claude" element={null} />
           </Routes>
           <div style={{ display: isClaudePage ? 'contents' : 'none' }}>

@@ -31,12 +31,24 @@ import type {
   PrioritizedNewsData,
   ClaudeSession,
   ClaudeSessionContent,
+  Persona,
+  UserProfile,
+  SetupStatus,
+  ConnectorInfo,
+  SecretsStatus,
 } from './types';
 
 export function useEmployees() {
   return useQuery({
     queryKey: ['employees'],
     queryFn: () => api.get<Employee[]>('/employees'),
+  });
+}
+
+export function useGroups() {
+  return useQuery({
+    queryKey: ['groups'],
+    queryFn: () => api.get<string[]>('/employees/groups'),
   });
 }
 
@@ -347,8 +359,12 @@ export function useCreateEmployee() {
       group_name?: string;
       email?: string;
     }) => api.post<Employee>('/employees', emp),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: ['employees'] });
+      qc.invalidateQueries({ queryKey: ['groups'] });
+      if (variables.reports_to) {
+        qc.invalidateQueries({ queryKey: ['employee', variables.reports_to] });
+      }
     },
   });
 }
@@ -371,6 +387,7 @@ export function useUpdateEmployee() {
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['employees'] });
       qc.invalidateQueries({ queryKey: ['employee', vars.id] });
+      qc.invalidateQueries({ queryKey: ['groups'] });
     },
   });
 }
@@ -381,6 +398,7 @@ export function useDeleteEmployee() {
     mutationFn: (id: string) => api.delete(`/employees/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['employees'] });
+      qc.invalidateQueries({ queryKey: ['groups'] });
     },
   });
 }
@@ -853,5 +871,151 @@ export function useCreateNoteFromSession() {
       qc.invalidateQueries({ queryKey: ['notes'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
+  });
+}
+
+// --- Profile & Setup ---
+
+export function useProfile() {
+  return useQuery({
+    queryKey: ['profile'],
+    queryFn: () => api.get<UserProfile>('/profile'),
+  });
+}
+
+export function useUpdateProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<UserProfile>) => api.patch<UserProfile>('/profile', data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['profile'] }),
+  });
+}
+
+export function useSetupStatus() {
+  return useQuery({
+    queryKey: ['setup-status'],
+    queryFn: () => api.get<SetupStatus>('/profile/setup-status'),
+  });
+}
+
+export function useCompleteSetup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post('/profile/complete-setup', {}),
+    onSuccess: () => {
+      qc.setQueryData(['setup-status'], { setup_complete: true });
+    },
+  });
+}
+
+export function useResetData() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post('/profile/reset', {}),
+    onSuccess: () => qc.clear(),
+  });
+}
+
+// --- Connectors ---
+
+export function useConnectors() {
+  return useQuery({
+    queryKey: ['connectors'],
+    queryFn: () => api.get<ConnectorInfo[]>('/auth/connectors'),
+  });
+}
+
+export function useToggleConnector() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      api.post(`/auth/connectors/${id}/${enabled ? 'enable' : 'disable'}`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['connectors'] }),
+  });
+}
+
+// --- Secrets ---
+
+export function useSecrets() {
+  return useQuery({
+    queryKey: ['secrets'],
+    queryFn: () => api.get<SecretsStatus>('/auth/secrets'),
+  });
+}
+
+export function useUpdateSecret() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ key, value }: { key: string; value: string }) =>
+      api.post('/auth/secrets', { key, value }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['secrets'] });
+      qc.invalidateQueries({ queryKey: ['auth-status'] });
+    },
+  });
+}
+
+export function useDeleteSecret() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (key: string) => api.delete(`/auth/secrets/${key}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['secrets'] });
+      qc.invalidateQueries({ queryKey: ['auth-status'] });
+    },
+  });
+}
+
+// --- Personas ---
+
+export function usePersonas() {
+  return useQuery({
+    queryKey: ['personas'],
+    queryFn: () => api.get<Persona[]>('/personas'),
+  });
+}
+
+export function useCreatePersona() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (persona: {
+      name: string;
+      description?: string;
+      system_prompt?: string;
+    }) => api.post<Persona>('/personas', persona),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['personas'] }),
+  });
+}
+
+export function useUpdatePersona() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      ...update
+    }: {
+      id: number;
+      name?: string;
+      description?: string;
+      system_prompt?: string;
+    }) => api.patch<Persona>(`/personas/${id}`, update),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['personas'] }),
+  });
+}
+
+export function useDeletePersona() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.delete(`/personas/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['personas'] }),
+  });
+}
+
+export function useUploadPersonaAvatar() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, file }: { id: number; file: File }) =>
+      api.upload(`/personas/${id}/avatar`, file),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['personas'] }),
   });
 }

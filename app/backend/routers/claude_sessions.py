@@ -10,8 +10,11 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 
 from config import DATABASE_PATH
-from database import get_db
+from database import get_db_connection, get_write_db
 from models import ClaudeSessionCreate, ClaudeSessionUpdate
+from utils.safe_sql import safe_update_query
+
+SESSION_ALLOWED_COLUMNS = {"title", "summary", "preview"}
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +23,7 @@ router = APIRouter(prefix="/api/claude/sessions", tags=["claude-sessions"])
 SESSIONS_DIR = DATABASE_PATH.parent / "claude_sessions"
 
 _SUMMARIZE_PROMPT = (
-    "You are summarizing a Claude Code terminal session for a CTO's personal dashboard. "
+    "You are summarizing a Claude Code terminal session for a personal dashboard. "
     "Given the raw terminal text, produce a JSON object with two fields:\n"
     '  "title": a short (5-10 word) title for the session\n'
     '  "summary": a clean, readable markdown summary (3-10 bullet points) of what was discussed and done\n\n'
@@ -70,30 +73,27 @@ def _summarize_in_background(session_id: int, plain_text: str):
         if not result:
             return
 
-        db = get_db()
-        fields = ["updated_at = datetime('now')"]
-        params = []
-
+        update_fields = {}
         if result.get("summary"):
-            fields.append("summary = ?")
-            params.append(result["summary"])
-            # Also update preview with first line of summary
-            preview = result["summary"].split("\n")[0][:200].lstrip("- *")
-            fields.append("preview = ?")
-            params.append(preview)
-
+            update_fields["summary"] = result["summary"]
+            update_fields["preview"] = result["summary"].split("\n")[0][:200].lstrip("- *")
         if result.get("title"):
-            fields.append("title = ?")
-            params.append(result["title"])
+            update_fields["title"] = result["title"]
 
-        if len(params) > 0:
-            params.append(session_id)
-            db.execute(
-                f"UPDATE claude_sessions SET {', '.join(fields)} WHERE id = ?",
-                params,
+        if update_fields:
+            set_clause, params = safe_update_query(
+                "claude_sessions",
+                update_fields,
+                SESSION_ALLOWED_COLUMNS,
+                extra_set_clauses=["updated_at = datetime('now')"],
             )
-            db.commit()
-        db.close()
+            with get_write_db() as db:
+                params.append(session_id)
+                db.execute(
+                    f"UPDATE claude_sessions SET {set_clause} WHERE id = ?",
+                    params,
+                )
+                db.commit()
 
     threading.Thread(target=_run, daemon=True).start()
 
@@ -101,22 +101,20 @@ def _summarize_in_background(session_id: int, plain_text: str):
 @router.get("")
 def list_sessions():
     """List all saved Claude sessions, newest first."""
-    db = get_db()
-    rows = db.execute(
-        "SELECT id, title, created_at, updated_at, preview, summary, size_bytes "
-        "FROM claude_sessions ORDER BY created_at DESC"
-    ).fetchall()
-    result = [dict(r) for r in rows]
-    db.close()
+    with get_db_connection(readonly=True) as db:
+        rows = db.execute(
+            "SELECT id, title, created_at, updated_at, preview, summary, size_bytes "
+            "FROM claude_sessions ORDER BY created_at DESC"
+        ).fetchall()
+        result = [dict(r) for r in rows]
     return result
 
 
 @router.get("/{session_id}")
 def get_session(session_id: int):
     """Get session metadata."""
-    db = get_db()
-    row = db.execute("SELECT * FROM claude_sessions WHERE id = ?", (session_id,)).fetchone()
-    db.close()
+    with get_db_connection(readonly=True) as db:
+        row = db.execute("SELECT * FROM claude_sessions WHERE id = ?", (session_id,)).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Session not found")
     return dict(row)
@@ -125,9 +123,8 @@ def get_session(session_id: int):
 @router.get("/{session_id}/content")
 def get_session_content(session_id: int):
     """Read the full session content from the JSON file on disk."""
-    db = get_db()
-    row = db.execute("SELECT filepath, summary FROM claude_sessions WHERE id = ?", (session_id,)).fetchone()
-    db.close()
+    with get_db_connection(readonly=True) as db:
+        row = db.execute("SELECT filepath, summary FROM claude_sessions WHERE id = ?", (session_id,)).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -148,41 +145,39 @@ def create_session(session: ClaudeSessionCreate):
     """Save a new Claude session to disk + database."""
     SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
-    db = get_db()
-
     preview = session.plain_text[:200].strip() if session.plain_text else ""
     content_bytes = base64.b64decode(session.content)
     size_bytes = len(content_bytes)
 
-    # Insert DB row first to get the auto-increment ID
-    cursor = db.execute(
-        "INSERT INTO claude_sessions (title, preview, size_bytes, filepath) VALUES (?, ?, ?, ?)",
-        (session.title, preview, size_bytes, ""),
-    )
-    session_id = cursor.lastrowid
+    with get_write_db() as db:
+        # Insert DB row first to get the auto-increment ID
+        cursor = db.execute(
+            "INSERT INTO claude_sessions (title, preview, size_bytes, filepath) VALUES (?, ?, ?, ?)",
+            (session.title, preview, size_bytes, ""),
+        )
+        session_id = cursor.lastrowid
 
-    # Write JSON file to disk
-    filename = f"session_{session_id}.json"
-    filepath = SESSIONS_DIR / filename
-    file_data = {
-        "id": session_id,
-        "raw_output": session.content,
-        "plain_text": session.plain_text,
-        "metadata": {"rows": session.rows, "cols": session.cols},
-    }
-    with open(filepath, "w") as f:
-        json.dump(file_data, f)
+        # Write JSON file to disk
+        filename = f"session_{session_id}.json"
+        filepath = SESSIONS_DIR / filename
+        file_data = {
+            "id": session_id,
+            "raw_output": session.content,
+            "plain_text": session.plain_text,
+            "metadata": {"rows": session.rows, "cols": session.cols},
+        }
+        with open(filepath, "w") as f:
+            json.dump(file_data, f)
 
-    # Update filepath in DB
-    db.execute(
-        "UPDATE claude_sessions SET filepath = ? WHERE id = ?",
-        (str(filepath), session_id),
-    )
-    db.commit()
+        # Update filepath in DB
+        db.execute(
+            "UPDATE claude_sessions SET filepath = ? WHERE id = ?",
+            (str(filepath), session_id),
+        )
+        db.commit()
 
-    row = db.execute("SELECT * FROM claude_sessions WHERE id = ?", (session_id,)).fetchone()
-    result = dict(row)
-    db.close()
+        row = db.execute("SELECT * FROM claude_sessions WHERE id = ?", (session_id,)).fetchone()
+        result = dict(row)
 
     # Kick off Gemini summarization in background — updates title, preview, summary
     _summarize_in_background(session_id, session.plain_text)
@@ -193,92 +188,88 @@ def create_session(session: ClaudeSessionCreate):
 @router.patch("/{session_id}")
 def update_session(session_id: int, update: ClaudeSessionUpdate):
     """Update session title."""
-    db = get_db()
-    existing = db.execute("SELECT * FROM claude_sessions WHERE id = ?", (session_id,)).fetchone()
-    if not existing:
-        db.close()
-        raise HTTPException(status_code=404, detail="Session not found")
+    with get_write_db() as db:
+        existing = db.execute("SELECT * FROM claude_sessions WHERE id = ?", (session_id,)).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Session not found")
 
-    fields = ["updated_at = datetime('now')"]
-    params = []
-    if update.title is not None:
-        fields.append("title = ?")
-        params.append(update.title)
+        update_fields = {}
+        if update.title is not None:
+            update_fields["title"] = update.title
 
-    params.append(session_id)
-    db.execute(f"UPDATE claude_sessions SET {', '.join(fields)} WHERE id = ?", params)
-    db.commit()
+        set_clause, params = safe_update_query(
+            "claude_sessions",
+            update_fields,
+            SESSION_ALLOWED_COLUMNS,
+            extra_set_clauses=["updated_at = datetime('now')"],
+        )
+        params.append(session_id)
+        db.execute(f"UPDATE claude_sessions SET {set_clause} WHERE id = ?", params)
+        db.commit()
 
-    row = db.execute("SELECT * FROM claude_sessions WHERE id = ?", (session_id,)).fetchone()
-    result = dict(row)
-    db.close()
+        row = db.execute("SELECT * FROM claude_sessions WHERE id = ?", (session_id,)).fetchone()
+        result = dict(row)
     return result
 
 
 @router.delete("/{session_id}")
 def delete_session(session_id: int):
     """Delete a session and its file from disk."""
-    db = get_db()
-    row = db.execute("SELECT filepath FROM claude_sessions WHERE id = ?", (session_id,)).fetchone()
-    if not row:
-        db.close()
-        raise HTTPException(status_code=404, detail="Session not found")
+    with get_write_db() as db:
+        row = db.execute("SELECT filepath FROM claude_sessions WHERE id = ?", (session_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Session not found")
 
-    # Delete file from disk
-    filepath = Path(row["filepath"])
-    if filepath.exists():
-        filepath.unlink()
+        # Delete file from disk
+        filepath = Path(row["filepath"])
+        if filepath.exists():
+            filepath.unlink()
 
-    db.execute("DELETE FROM claude_sessions WHERE id = ?", (session_id,))
-    db.commit()
-    db.close()
+        db.execute("DELETE FROM claude_sessions WHERE id = ?", (session_id,))
+        db.commit()
     return {"ok": True}
 
 
 @router.post("/{session_id}/create_note")
 def create_note_from_session(session_id: int):
     """Create a note summarizing this Claude session with bidirectional links."""
-    db = get_db()
+    with get_write_db() as db:
+        # Get the session
+        row = db.execute("SELECT * FROM claude_sessions WHERE id = ?", (session_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Session not found")
 
-    # Get the session
-    row = db.execute("SELECT * FROM claude_sessions WHERE id = ?", (session_id,)).fetchone()
-    if not row:
-        db.close()
-        raise HTTPException(status_code=404, detail="Session not found")
+        session = dict(row)
 
-    session = dict(row)
+        # Check if a note already exists for this session
+        existing = db.execute("SELECT id FROM notes WHERE claude_session_id = ?", (session_id,)).fetchone()
 
-    # Check if a note already exists for this session
-    existing = db.execute("SELECT id FROM notes WHERE claude_session_id = ?", (session_id,)).fetchone()
+        if existing:
+            raise HTTPException(status_code=400, detail="Note already exists for this session")
 
-    if existing:
-        db.close()
-        raise HTTPException(status_code=400, detail="Note already exists for this session")
+        # Build note text with summary and link back to session
+        note_text = f"**Claude Session**: [{session['title']}](/claude?session={session_id})\n\n"
 
-    # Build note text with summary and link back to session
-    note_text = f"**Claude Session**: [{session['title']}](/claude?session={session_id})\n\n"
+        if session.get("summary"):
+            note_text += session["summary"]
+        else:
+            # Fallback to preview if no summary yet
+            note_text += session.get("preview", "Session in progress...")
 
-    if session.get("summary"):
-        note_text += session["summary"]
-    else:
-        # Fallback to preview if no summary yet
-        note_text += session.get("preview", "Session in progress...")
+        # Insert the note
+        cursor = db.execute(
+            """
+            INSERT INTO notes (text, priority, status, claude_session_id, created_at)
+            VALUES (?, ?, ?, ?, datetime('now'))
+            """,
+            (note_text, 1, "open", session_id),
+        )
+        note_id = cursor.lastrowid
 
-    # Insert the note
-    cursor = db.execute(
-        """
-        INSERT INTO notes (text, priority, status, claude_session_id, created_at)
-        VALUES (?, ?, ?, ?, datetime('now'))
-        """,
-        (note_text, 1, "open", session_id),
-    )
-    note_id = cursor.lastrowid
+        # Get the created note
+        note_row = db.execute("SELECT * FROM notes WHERE id = ?", (note_id,)).fetchone()
+        result = dict(note_row)
 
-    # Get the created note
-    note_row = db.execute("SELECT * FROM notes WHERE id = ?", (note_id,)).fetchone()
-    result = dict(note_row)
-
-    db.commit()
-    db.close()
+        db.commit()
 
     return result

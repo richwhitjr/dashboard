@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { TimeAgo } from '../components/shared/TimeAgo';
 import { MarkdownRenderer } from '../components/shared/MarkdownRenderer';
 import { ClaudeTerminal } from '../components/ClaudeTerminal';
@@ -9,11 +10,14 @@ import {
   useSaveClaudeSession,
   useDeleteClaudeSession,
   useCreateNoteFromSession,
+  usePersonas,
 } from '../api/hooks';
 
 interface Tab {
   id: string;
   label: string;
+  personaId?: number;
+  personaName?: string;
 }
 
 function generateTitle(plainText: string): string {
@@ -45,10 +49,18 @@ export function ClaudePage({ visible, overlayOpen }: { visible: boolean; overlay
   const saveSession = useSaveClaudeSession();
   const deleteSession = useDeleteClaudeSession();
   const createNoteFromSession = useCreateNoteFromSession();
+  const { data: personas } = usePersonas();
+  const [showPersonaPicker, setShowPersonaPicker] = useState(false);
+  const personaPickerRef = useRef<HTMLDivElement>(null);
 
-  // Check for session query parameter on mount
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [pendingPersonaId, setPendingPersonaId] = useState<number | null>(null);
+
+  // Parse query params reactively (ClaudePage is always mounted, so mount-only won't work)
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(location.search);
+
     const sessionParam = params.get('session');
     if (sessionParam) {
       const sessionId = parseInt(sessionParam, 10);
@@ -56,8 +68,43 @@ export function ClaudePage({ visible, overlayOpen }: { visible: boolean; overlay
         setViewingSessionId(sessionId);
         setPanelOpen(true);
       }
+      navigate('/claude', { replace: true });
+      return;
     }
-  }, []);
+
+    const personaParam = params.get('persona');
+    if (personaParam) {
+      const personaId = parseInt(personaParam, 10);
+      if (!isNaN(personaId)) {
+        setPendingPersonaId(personaId);
+      }
+      navigate('/claude', { replace: true });
+    }
+  }, [location.search, navigate]);
+
+  // Create tab when pending persona resolves with loaded persona data
+  useEffect(() => {
+    if (pendingPersonaId === null) return;
+    if (!personas) return;
+
+    const persona = personas.find((p) => p.id === pendingPersonaId);
+    setPendingPersonaId(null);
+
+    const isDefault = !persona || persona.name === 'Default';
+    const pId = isDefault ? undefined : persona.id;
+    const pName = isDefault ? undefined : persona.name;
+
+    tabCounterRef.current += 1;
+    const id = String(nextTabId++);
+    const label = pName ? `${pName} ${tabCounterRef.current}` : `Session ${tabCounterRef.current}`;
+    setTabs((prev) => [...prev, { id, label, personaId: pId, personaName: pName }]);
+    setActiveTabId(id);
+    setTabStatus((prev) => {
+      const next = new Map(prev);
+      next.set(id, 'connecting');
+      return next;
+    });
+  }, [pendingPersonaId, personas]);
 
   const updateTabStatus = useCallback((tabId: string, status: string) => {
     setTabStatus((prev) => {
@@ -67,17 +114,32 @@ export function ClaudePage({ visible, overlayOpen }: { visible: boolean; overlay
     });
   }, []);
 
-  function addTab() {
+  // Close persona picker on click outside
+  useEffect(() => {
+    if (!showPersonaPicker) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (personaPickerRef.current && !personaPickerRef.current.contains(e.target as Node)) {
+        setShowPersonaPicker(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showPersonaPicker]);
+
+  function addTabWithPersona(personaId?: number, personaName?: string) {
     tabCounterRef.current += 1;
     const id = String(nextTabId++);
-    const label = `Session ${tabCounterRef.current}`;
-    setTabs((prev) => [...prev, { id, label }]);
+    const label = personaName
+      ? `${personaName} ${tabCounterRef.current}`
+      : `Session ${tabCounterRef.current}`;
+    setTabs((prev) => [...prev, { id, label, personaId, personaName }]);
     setActiveTabId(id);
     setTabStatus((prev) => {
       const next = new Map(prev);
       next.set(id, 'connecting');
       return next;
     });
+    setShowPersonaPicker(false);
   }
 
   function closeTab(tabId: string) {
@@ -241,6 +303,20 @@ export function ClaudePage({ visible, overlayOpen }: { visible: boolean; overlay
             className={`claude-tab${tab.id === activeTabId ? ' active' : ''}`}
             onClick={() => switchTab(tab.id)}
           >
+            {tab.personaId && (() => {
+              const p = personas?.find((p) => p.id === tab.personaId);
+              return p?.avatar_filename ? (
+                <img
+                  src={`/api/personas/${p.id}/avatar`}
+                  alt=""
+                  className="persona-avatar-sm"
+                />
+              ) : p ? (
+                <span className="persona-avatar-placeholder-sm">
+                  {p.name.charAt(0).toUpperCase()}
+                </span>
+              ) : null;
+            })()}
             <span className="claude-tab-label">{tab.label}</span>
             <button
               className="claude-tab-close"
@@ -251,9 +327,55 @@ export function ClaudePage({ visible, overlayOpen }: { visible: boolean; overlay
             </button>
           </div>
         ))}
-        <button className="claude-tab-new" onClick={addTab} title="New session">
+        <button
+          className="claude-tab-new"
+          onClick={() => addTabWithPersona()}
+          title="New session"
+        >
           +
         </button>
+        <div className="claude-tab-new-wrapper" ref={personaPickerRef}>
+          <button
+            className="claude-tab-persona-trigger"
+            onClick={() => setShowPersonaPicker(!showPersonaPicker)}
+            title="New session with persona"
+          >
+            &#9662;
+          </button>
+          {showPersonaPicker && (
+            <div className="claude-persona-picker">
+              {personas?.filter((p) => p.name !== 'Default').map((p) => (
+                <button
+                  key={p.id}
+                  className="claude-persona-option"
+                  onClick={() => addTabWithPersona(p.id, p.name)}
+                >
+                  {p.avatar_filename ? (
+                    <img
+                      src={`/api/personas/${p.id}/avatar`}
+                      alt=""
+                      className="persona-avatar"
+                      style={{ width: 28, height: 28 }}
+                    />
+                  ) : (
+                    <span
+                      className="persona-avatar-placeholder"
+                      style={{ width: 28, height: 28, fontSize: 13 }}
+                    >
+                      {p.name.charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                  <span className="claude-persona-info">
+                    <span className="claude-persona-name">{p.name}</span>
+                    {p.description && (
+                      <span className="claude-persona-desc">{p.description}</span>
+                    )}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="claude-body">
@@ -309,6 +431,7 @@ export function ClaudePage({ visible, overlayOpen }: { visible: boolean; overlay
               }}
               visible={tab.id === activeTabId && !viewingSessionId && visible}
               overlayOpen={overlayOpen}
+              personaId={tab.personaId}
               onConnected={() => updateTabStatus(tab.id, 'connected')}
               onDisconnected={() => updateTabStatus(tab.id, 'disconnected')}
             />

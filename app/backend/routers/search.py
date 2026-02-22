@@ -4,7 +4,7 @@ import asyncio
 
 from fastapi import APIRouter, Query
 
-from database import get_db
+from database import get_db_connection
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 
@@ -304,25 +304,23 @@ async def search(
 
     results = {}
 
-    db = get_db()
-    fts_query = _build_fts_query(q)
+    with get_db_connection(readonly=True) as db:
+        fts_query = _build_fts_query(q)
 
-    if "employees" in source_set:
-        results["employees"] = _search_employees(db, fts_query, q, limit)
+        if "employees" in source_set:
+            results["employees"] = _search_employees(db, fts_query, q, limit)
 
-    if "notes" in source_set:
-        results["notes"] = _search_notes(db, fts_query, limit)
-        results["issues"] = _search_issues(db, fts_query, limit)
-        results["one_on_one_notes"] = _search_one_on_one(db, fts_query, limit)
+        if "notes" in source_set:
+            results["notes"] = _search_notes(db, fts_query, limit)
+            results["issues"] = _search_issues(db, fts_query, limit)
+            results["one_on_one_notes"] = _search_one_on_one(db, fts_query, limit)
 
-    if "meetings" in source_set:
-        results["granola_meetings"] = _search_granola(db, fts_query, limit)
-        results["meeting_files"] = _search_meeting_files(db, fts_query, limit)
+        if "meetings" in source_set:
+            results["granola_meetings"] = _search_granola(db, fts_query, limit)
+            results["meeting_files"] = _search_meeting_files(db, fts_query, limit)
 
-    if "emails" in source_set:
-        results["emails"] = _search_emails(db, fts_query, limit)
-
-    db.close()
+        if "emails" in source_set:
+            results["emails"] = _search_emails(db, fts_query, limit)
 
     if include_external:
         external = await _search_external(q, limit)

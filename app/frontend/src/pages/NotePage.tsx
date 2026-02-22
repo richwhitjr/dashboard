@@ -21,6 +21,15 @@ function isThought(note: Note): boolean {
   return note.text.startsWith('[t]') || note.text.startsWith('[T]');
 }
 
+function stripNotePrefix(text: string): { displayText: string; isThoughtNote: boolean; isOneOnOnePrefix: boolean } {
+  const isThoughtNote = /^\[[tT]\]\s*/.test(text);
+  const isOneOnOnePrefix = /^\[1\]\s*/.test(text);
+  let displayText = text;
+  if (isThoughtNote) displayText = text.replace(/^\[[tT]\]\s*/, '');
+  else if (isOneOnOnePrefix) displayText = text.replace(/^\[1\]\s*/, '');
+  return { displayText, isThoughtNote, isOneOnOnePrefix };
+}
+
 function NoteItem({
   note,
   onToggle,
@@ -37,6 +46,7 @@ function NoteItem({
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(note.text);
   const editRef = useRef<HTMLInputElement>(null);
+  const { displayText, isThoughtNote, isOneOnOnePrefix } = stripNotePrefix(note.text);
 
   useEffect(() => {
     if (editing) editRef.current?.focus();
@@ -53,9 +63,7 @@ function NoteItem({
   return (
     <div
       id={`note-${note.id}`}
-      className={`note-item dashboard-item-row ${note.status === 'done' ? 'done' : ''} ${
-        note.priority >= 3 ? 'priority-high' : note.priority === 2 ? 'priority-medium' : ''
-      }`}
+      className={`note-item dashboard-item-row ${note.status === 'done' ? 'done' : ''}`}
     >
       <input
         type="checkbox"
@@ -78,7 +86,8 @@ function NoteItem({
           />
         ) : (
           <div onDoubleClick={() => { setEditText(note.text); setEditing(true); }} style={{ cursor: 'text' }}>
-            {note.text}
+            {isThoughtNote && <span className="note-type-indicator thought">~</span>}
+            {displayText}
           </div>
         )}
         <div className="note-meta">
@@ -95,7 +104,7 @@ function NoteItem({
           {showEmployee && !note.employees?.length && note.employee_name && (
             <a href={`/employees/${note.employee_id}`}>{note.employee_name}</a>
           )}
-          {note.is_one_on_one && <span className="note-badge">1:1</span>}
+          {(note.is_one_on_one || isOneOnOnePrefix) && <span className="note-badge">1:1</span>}
         </div>
       </div>
       <button

@@ -1,7 +1,7 @@
 """Ramp expense connector — OAuth 2.0 Client Credentials, sync transactions to SQLite."""
 
+import json
 import logging
-import os
 import time
 from datetime import datetime, timedelta
 from urllib.parse import parse_qs, urlparse
@@ -9,7 +9,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 
 from config import RAMP_TRANSACTION_SYNC_DAYS
-from database import get_db
+from database import batch_upsert, get_db_connection, get_write_db
 
 logger = logging.getLogger(__name__)
 
@@ -25,10 +25,12 @@ _token_expires_at: float = 0  # set to 0 to force re-auth with updated scopes
 
 
 def _get_ramp_credentials() -> tuple[str, str]:
-    client_id = os.environ.get("RAMP_CLIENT_ID", "")
-    client_secret = os.environ.get("RAMP_CLIENT_SECRET", "")
+    from app_config import get_secret
+
+    client_id = get_secret("RAMP_CLIENT_ID") or ""
+    client_secret = get_secret("RAMP_CLIENT_SECRET") or ""
     if not client_id or not client_secret:
-        raise ValueError("RAMP_CLIENT_ID and RAMP_CLIENT_SECRET must be set in .env")
+        raise ValueError("RAMP_CLIENT_ID and RAMP_CLIENT_SECRET not configured. Add them in Settings.")
     return client_id, client_secret
 
 
@@ -66,9 +68,8 @@ def _headers() -> dict:
 
 def _get_org_names() -> set[str]:
     """Return lowercase full names of all employees in the DB."""
-    db = get_db()
-    rows = db.execute("SELECT name FROM employees WHERE name IS NOT NULL AND name != ''").fetchall()
-    db.close()
+    with get_db_connection(readonly=True) as db:
+        rows = db.execute("SELECT name FROM employees WHERE name IS NOT NULL AND name != ''").fetchall()
     return {row["name"].lower() for row in rows}
 
 
@@ -89,6 +90,7 @@ def sync_ramp_transactions(org_only: bool = False, from_date: str | None = None)
     org_names = _get_org_names() if org_only else None
     logger.info("Ramp sync: org_only=%s, org members=%d", org_only, len(org_names) if org_names else -1)
 
+    # Phase 1: Fetch all transactions from API (no DB connection held)
     all_transactions = []
     params: dict = {
         "from_date": cutoff_iso,
@@ -96,7 +98,6 @@ def sync_ramp_transactions(org_only: bool = False, from_date: str | None = None)
         "order_by_date_desc": "true",
     }
 
-    # Paginate through all results
     url = TRANSACTIONS_URL
     while True:
         resp = httpx.get(url, headers=_headers(), params=params, timeout=30)
@@ -109,7 +110,6 @@ def sync_ramp_transactions(org_only: bool = False, from_date: str | None = None)
         else:
             break
 
-        # Cursor-based pagination — extract start cursor from page.next URL
         page = data.get("page", {})
         next_url = page.get("next")
         if not next_url:
@@ -141,15 +141,13 @@ def sync_ramp_transactions(org_only: bool = False, from_date: str | None = None)
         ]
         logger.info("Ramp org filter: %d → %d transactions", before, len(all_transactions))
 
-    # Store to DB
-    db = get_db()
-    count = 0
+    # Phase 2: Build rows
+    rows = []
     for txn in all_transactions:
         txn_id = txn.get("id", "")
         if not txn_id:
             continue
 
-        # Extract amount — Ramp may nest it
         amount = txn.get("amount", 0)
         if isinstance(amount, dict):
             amount = amount.get("amount", 0)
@@ -168,7 +166,6 @@ def sync_ramp_transactions(org_only: bool = False, from_date: str | None = None)
 
         txn_date = txn.get("user_transaction_time") or txn.get("transaction_date") or txn.get("created_at", "")
 
-        # Cardholder info
         cardholder = txn.get("card_holder", {})
         if isinstance(cardholder, dict):
             ch_name = f"{cardholder.get('first_name', '')} {cardholder.get('last_name', '')}".strip() or cardholder.get(
@@ -188,12 +185,7 @@ def sync_ramp_transactions(org_only: bool = False, from_date: str | None = None)
         )
         status = txn.get("state", txn.get("status", ""))
 
-        db.execute(
-            """INSERT OR REPLACE INTO ramp_transactions
-               (id, amount, currency, merchant_name, category, category_code,
-                transaction_date, cardholder_name, cardholder_email, memo,
-                receipt_urls, status, ramp_url, synced_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        rows.append(
             (
                 txn_id,
                 amount,
@@ -209,17 +201,27 @@ def sync_ramp_transactions(org_only: bool = False, from_date: str | None = None)
                 status,
                 None,
                 datetime.utcnow().isoformat(),
-            ),
+            )
         )
-        count += 1
 
-    db.commit()
-    db.close()
-    return count
+    # Phase 3: Write in batches
+    with get_write_db() as db:
+        batch_upsert(
+            db,
+            """INSERT OR REPLACE INTO ramp_transactions
+               (id, amount, currency, merchant_name, category, category_code,
+                transaction_date, cardholder_name, cardholder_email, memo,
+                receipt_urls, status, ramp_url, synced_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows,
+        )
+
+    return len(rows)
 
 
 def sync_ramp_vendors() -> int:
     """Fetch vendors from Ramp accounting/vendors and store in ramp_vendors. Returns count."""
+    # Phase 1: Fetch all vendors from API
     all_vendors = []
     params: dict = {"page_size": 100}
     url = VENDORS_URL
@@ -245,22 +247,25 @@ def sync_ramp_vendors() -> int:
             break
         params = {"page_size": 100, "start": start_cursor}
 
-    db = get_db()
-    count = 0
+    # Phase 2: Build rows
+    rows = []
     for v in all_vendors:
         vid = v.get("id", "")
         if not vid:
             continue
-        db.execute(
+        rows.append((vid, v.get("name", ""), 1 if v.get("is_active", True) else 0, datetime.utcnow().isoformat()))
+
+    # Phase 3: Write in batches
+    with get_write_db() as db:
+        batch_upsert(
+            db,
             """INSERT OR REPLACE INTO ramp_vendors (id, name, is_active, synced_at)
                VALUES (?, ?, ?, ?)""",
-            (vid, v.get("name", ""), 1 if v.get("is_active", True) else 0, datetime.utcnow().isoformat()),
+            rows,
         )
-        count += 1
-    db.commit()
-    db.close()
-    logger.info("Ramp vendors synced: %d", count)
-    return count
+
+    logger.info("Ramp vendors synced: %d", len(rows))
+    return len(rows)
 
 
 def sync_ramp_bills(from_date: str | None = None, wipe: bool = True) -> int:
@@ -278,6 +283,7 @@ def sync_ramp_bills(from_date: str | None = None, wipe: bool = True) -> int:
         cutoff = datetime.utcnow() - timedelta(days=RAMP_TRANSACTION_SYNC_DAYS)
         cutoff_iso = cutoff.strftime("%Y-%m-%dT00:00:00Z")
 
+    # Phase 1: Fetch all bills from API
     all_bills = []
     params: dict = {"from_created_at": cutoff_iso, "page_size": 100}
     url = BILLS_URL
@@ -303,17 +309,12 @@ def sync_ramp_bills(from_date: str | None = None, wipe: bool = True) -> int:
             break
         params = {"from_created_at": cutoff_iso, "page_size": 100, "start": start_cursor}
 
-    # Build vendor name lookup from DB
-    db = get_db()
-    vendor_rows = db.execute("SELECT id, name FROM ramp_vendors").fetchall()
+    # Phase 2: Read vendor names and build rows
+    with get_db_connection(readonly=True) as db:
+        vendor_rows = db.execute("SELECT id, name FROM ramp_vendors").fetchall()
     vendor_names = {r["id"]: r["name"] for r in vendor_rows}
 
-    if wipe:
-        db.execute("DELETE FROM ramp_bills")
-
-    import json as _json
-
-    count = 0
+    rows = []
     for bill in all_bills:
         bill_id = bill.get("id", "")
         if not bill_id:
@@ -332,12 +333,7 @@ def sync_ramp_bills(from_date: str | None = None, wipe: bool = True) -> int:
 
         line_items = bill.get("line_items", bill.get("line_items_data", []))
 
-        db.execute(
-            """INSERT OR REPLACE INTO ramp_bills
-               (id, vendor_id, vendor_name, amount, currency, due_at, issued_at, paid_at,
-                invoice_number, memo, status, approval_status, payment_status, payment_method,
-                line_items_json, ramp_url, synced_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        rows.append(
             (
                 bill_id,
                 vendor_id,
@@ -353,45 +349,56 @@ def sync_ramp_bills(from_date: str | None = None, wipe: bool = True) -> int:
                 bill.get("approval_status", ""),
                 bill.get("payment_status", ""),
                 bill.get("payment_method", ""),
-                _json.dumps(line_items) if line_items else None,
+                json.dumps(line_items) if line_items else None,
                 bill.get("ramp_url") or bill.get("canonical_url"),
                 datetime.utcnow().isoformat(),
-            ),
+            )
         )
-        count += 1
 
-    db.commit()
-    db.close()
-    logger.info("Ramp bills synced: %d (from %s, wipe=%s)", count, cutoff_iso, wipe)
-    return count
+    # Phase 3: Write — wipe first if requested, then batch insert
+    with get_write_db() as db:
+        if wipe:
+            db.execute("DELETE FROM ramp_bills")
+            db.commit()
+        batch_upsert(
+            db,
+            """INSERT OR REPLACE INTO ramp_bills
+               (id, vendor_id, vendor_name, amount, currency, due_at, issued_at, paid_at,
+                invoice_number, memo, status, approval_status, payment_status, payment_method,
+                line_items_json, ramp_url, synced_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows,
+        )
+
+    logger.info("Ramp bills synced: %d (from %s, wipe=%s)", len(rows), cutoff_iso, wipe)
+    return len(rows)
 
 
 def seed_projects_from_vendors() -> int:
     """Create stub projects for vendors that have bills but no project yet. Idempotent."""
-    db = get_db()
-    # Find distinct vendor_ids in bills that have no matching project
-    rows = db.execute(
-        """SELECT DISTINCT b.vendor_id, b.vendor_name
-           FROM ramp_bills b
-           WHERE b.vendor_id != '' AND b.vendor_id IS NOT NULL
-             AND NOT EXISTS (
-               SELECT 1 FROM projects p WHERE p.vendor_id = b.vendor_id
-             )"""
-    ).fetchall()
+    with get_write_db() as db:
+        rows = db.execute(
+            """SELECT DISTINCT b.vendor_id, b.vendor_name
+               FROM ramp_bills b
+               WHERE b.vendor_id != '' AND b.vendor_id IS NOT NULL
+                 AND NOT EXISTS (
+                   SELECT 1 FROM projects p WHERE p.vendor_id = b.vendor_id
+                 )"""
+        ).fetchall()
 
-    count = 0
-    for row in rows:
-        vendor_id = row["vendor_id"]
-        vendor_name = row["vendor_name"] or vendor_id
-        db.execute(
-            """INSERT OR IGNORE INTO projects (name, vendor_id, budget_amount, status)
-               VALUES (?, ?, 0, 'active')""",
-            (vendor_name, vendor_id),
-        )
-        count += 1
+        count = 0
+        for row in rows:
+            vendor_id = row["vendor_id"]
+            vendor_name = row["vendor_name"] or vendor_id
+            db.execute(
+                """INSERT OR IGNORE INTO projects (name, vendor_id, budget_amount, status)
+                   VALUES (?, ?, 0, 'active')""",
+                (vendor_name, vendor_id),
+            )
+            count += 1
 
-    db.commit()
-    db.close()
+        db.commit()
+
     logger.info("Seeded %d projects from Ramp vendors", count)
     return count
 

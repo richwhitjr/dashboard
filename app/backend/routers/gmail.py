@@ -2,7 +2,6 @@
 
 import base64
 import json
-import os
 import re
 from collections import OrderedDict
 from datetime import datetime
@@ -10,8 +9,9 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query
 from googleapiclient.discovery import build
 
+from app_config import get_prompt_context, get_secret
 from connectors.google_auth import get_google_credentials
-from database import get_db
+from database import get_db_connection, get_write_db
 
 router = APIRouter(prefix="/api/gmail", tags=["gmail"])
 
@@ -154,9 +154,12 @@ def get_message(message_id: str):
 
 # --- Gemini-ranked emails ---
 
-_EMAIL_RANK_PROMPT = """\
-You are a priority-ranking assistant for Rich, the CTO of Osmo. You will receive a list of \
-recent emails. Your job is to rank them by importance/priority for Rich.
+
+def _build_email_rank_prompt() -> str:
+    ctx = get_prompt_context()
+    return f"""\
+You are a priority-ranking assistant {ctx}. You will receive a list of \
+recent emails. Your job is to rank them by importance/priority for the user.
 
 For each email, assign a priority_score from 1-10 where:
 - 10: Urgent, needs immediate response (exec requests, board/investor comms, production incidents)
@@ -172,10 +175,10 @@ Consider:
 1. Emails from executives, board members, or investors are highest priority
 2. Emails from direct reports asking questions or needing decisions are high priority
 3. Unread emails are more important than read ones
-4. Emails requiring a reply or action from Rich score higher
+4. Emails requiring a reply or action from the user score higher
 5. Time-sensitive content (deadlines, meeting prep) scores higher
 6. Marketing, promotional, newsletter, and automated emails are low priority
-7. Active multi-message threads where Rich may need to weigh in score higher
+7. Active multi-message threads where the user may need to weigh in score higher
 
 Return ONLY valid JSON — an array of objects with keys: id, priority_score, reason (one short sentence).
 Order by priority_score descending. Return ALL emails provided, scored."""
@@ -183,7 +186,7 @@ Order by priority_score descending. Return ALL emails provided, scored."""
 
 def _rank_email_with_gemini(emails: list[dict]) -> list[dict]:
     """Call Gemini to rank emails by priority."""
-    api_key = os.environ.get("GEMINI_API_KEY", "")
+    api_key = get_secret("GEMINI_API_KEY") or ""
     if not api_key:
         return []
 
@@ -197,7 +200,7 @@ def _rank_email_with_gemini(emails: list[dict]) -> list[dict]:
         model="gemini-2.0-flash",
         contents=user_message,
         config={
-            "system_instruction": _EMAIL_RANK_PROMPT,
+            "system_instruction": _build_email_rank_prompt(),
             "temperature": 0.2,
             "response_mime_type": "application/json",
         },
@@ -220,33 +223,31 @@ def _dismissed_email_ids(db) -> set[str]:
 @router.get("/prioritized")
 def get_prioritized_email(refresh: bool = Query(False), days: int = Query(7, ge=1, le=90)):
     """Return recent emails ranked by Gemini priority score."""
-    db = get_db()
-    dismissed = _dismissed_email_ids(db)
-    cutoff = f"-{days} days"
+    with get_db_connection(readonly=True) as db:
+        dismissed = _dismissed_email_ids(db)
+        cutoff = f"-{days} days"
 
-    # Check cache first
-    if not refresh:
-        cached = db.execute(
-            "SELECT data_json, generated_at FROM cached_email_priorities ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        if cached:
-            data = json.loads(cached["data_json"])
-            data["items"] = [item for item in data.get("items", []) if item["id"] not in dismissed]
-            db.close()
-            return data
+        # Check cache first
+        if not refresh:
+            cached = db.execute(
+                "SELECT data_json, generated_at FROM cached_email_priorities ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            if cached:
+                data = json.loads(cached["data_json"])
+                data["items"] = [item for item in data.get("items", []) if item["id"] not in dismissed]
+                return data
 
-    # Fetch recent emails from DB
-    rows = db.execute(
-        "SELECT id, thread_id, subject, snippet, from_name, from_email, date, "
-        "labels_json, is_unread, body_preview "
-        "FROM emails "
-        "WHERE synced_at >= datetime('now', ?) "
-        "ORDER BY date DESC LIMIT 100",
-        (cutoff,),
-    ).fetchall()
+        # Fetch recent emails from DB
+        rows = db.execute(
+            "SELECT id, thread_id, subject, snippet, from_name, from_email, date, "
+            "labels_json, is_unread, body_preview "
+            "FROM emails "
+            "WHERE synced_at >= datetime('now', ?) "
+            "ORDER BY date DESC LIMIT 100",
+            (cutoff,),
+        ).fetchall()
 
     if not rows:
-        db.close()
         return {"items": [], "error": "No emails synced yet"}
 
     # Group by thread before sending to Gemini
@@ -277,7 +278,6 @@ def get_prioritized_email(refresh: bool = Query(False), days: int = Query(7, ge=
     try:
         ranked = _rank_email_with_gemini(emails_for_llm)
     except Exception as e:
-        db.close()
         return {"items": [], "error": str(e)}
 
     # Build thread-level lookup
@@ -318,12 +318,12 @@ def get_prioritized_email(refresh: bool = Query(False), days: int = Query(7, ge=
     result = {"items": items}
 
     # Cache result
-    db.execute("DELETE FROM cached_email_priorities")
-    db.execute(
-        "INSERT INTO cached_email_priorities (data_json) VALUES (?)",
-        (json.dumps(result),),
-    )
-    db.commit()
-    db.close()
+    with get_write_db() as db:
+        db.execute("DELETE FROM cached_email_priorities")
+        db.execute(
+            "INSERT INTO cached_email_priorities (data_json) VALUES (?)",
+            (json.dumps(result),),
+        )
+        db.commit()
 
     return result

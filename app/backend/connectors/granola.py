@@ -4,7 +4,7 @@ import json
 
 from config import GRANOLA_CACHE_PATH
 from connectors.prosemirror import pm_to_html, pm_to_text
-from database import get_db
+from database import batch_upsert, get_write_db
 from utils.employee_matching import match_attendees_to_employee
 
 
@@ -98,32 +98,35 @@ def sync_granola_meetings() -> int:
     if not meetings:
         return 0
 
-    db = get_db()
+    # Build rows from parsed meetings (no DB connection held during parsing)
+    rows = [
+        (
+            m["id"],
+            m["title"],
+            m["created_at"],
+            m["updated_at"],
+            m["calendar_event_id"],
+            m["calendar_event_summary"],
+            m["attendees_json"],
+            m["panel_summary_html"],
+            m["panel_summary_plain"],
+            m["transcript_text"],
+            m["granola_link"],
+            m["employee_id"],
+            m["valid_meeting"],
+        )
+        for m in meetings
+    ]
 
-    for m in meetings:
-        db.execute(
+    with get_write_db() as db:
+        batch_upsert(
+            db,
             """INSERT OR REPLACE INTO granola_meetings
                (id, title, created_at, updated_at, calendar_event_id, calendar_event_summary,
                 attendees_json, panel_summary_html, panel_summary_plain, transcript_text,
                 granola_link, employee_id, valid_meeting)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                m["id"],
-                m["title"],
-                m["created_at"],
-                m["updated_at"],
-                m["calendar_event_id"],
-                m["calendar_event_summary"],
-                m["attendees_json"],
-                m["panel_summary_html"],
-                m["panel_summary_plain"],
-                m["transcript_text"],
-                m["granola_link"],
-                m["employee_id"],
-                m["valid_meeting"],
-            ),
+            rows,
         )
 
-    db.commit()
-    db.close()
     return len(meetings)

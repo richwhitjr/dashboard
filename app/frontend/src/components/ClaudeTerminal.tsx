@@ -58,12 +58,13 @@ export interface ClaudeTerminalHandle {
 interface ClaudeTerminalProps {
   visible: boolean;
   overlayOpen?: boolean;
+  personaId?: number;
   onConnected?: () => void;
   onDisconnected?: () => void;
 }
 
 export const ClaudeTerminal = forwardRef<ClaudeTerminalHandle, ClaudeTerminalProps>(
-  ({ visible, overlayOpen, onConnected, onDisconnected }, ref) => {
+  ({ visible, overlayOpen, personaId, onConnected, onDisconnected }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const termRef = useRef<Terminal | null>(null);
     const wsRef = useRef<WebSocket | null>(null);
@@ -127,7 +128,8 @@ export const ClaudeTerminal = forwardRef<ClaudeTerminalHandle, ClaudeTerminalPro
 
       // WebSocket
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(`${proto}//${location.host}/api/ws/claude`);
+      const params = personaId ? `?persona_id=${personaId}` : '';
+      const ws = new WebSocket(`${proto}//${location.host}/api/ws/claude${params}`);
       ws.binaryType = 'arraybuffer';
       wsRef.current = ws;
 

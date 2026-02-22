@@ -7,7 +7,7 @@
     <key>CFBundleDisplayName</key>
     <string>Dashboard</string>
     <key>CFBundleIdentifier</key>
-    <string>com.osmo.dashboard</string>
+    <string>com.personal-dashboard.app</string>
     <key>CFBundleVersion</key>
     <string>1.0</string>
     <key>CFBundlePackageType</key>

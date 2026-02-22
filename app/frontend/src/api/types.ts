@@ -6,7 +6,7 @@ export interface Employee {
   depth: number;
   has_meetings_dir: boolean;
   is_executive: boolean;
-  group_name: 'exec' | 'team' | 'external';
+  group_name: string;
   email?: string;
   dir_path?: string;
 }
@@ -587,3 +587,57 @@ export interface ClaudeSessionContent {
     cols: number;
   };
 }
+
+// --- Personas ---
+
+export interface Persona {
+  id: number;
+  name: string;
+  description: string;
+  system_prompt: string;
+  avatar_filename: string | null;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// --- Profile & Setup ---
+
+export interface UserProfile {
+  user_name?: string;
+  user_title?: string;
+  user_company?: string;
+  user_company_description?: string;
+  user_email?: string;
+  user_email_domain?: string;
+  github_repo?: string;
+  skip_domains?: string[];
+  news_topics?: string[];
+}
+
+export interface SetupStatus {
+  setup_complete: boolean;
+  has_profile: boolean;
+  connected_services: number;
+  data_dir: string;
+  database_path: string;
+}
+
+export interface ConnectorInfo {
+  id: string;
+  name: string;
+  description: string;
+  category: 'oauth' | 'token' | 'client_credentials' | 'cli' | 'local' | 'none';
+  secret_keys: string[];
+  help_steps: string[];
+  help_url: string | null;
+  default_enabled: boolean;
+  enabled: boolean;
+}
+
+export interface SecretStatus {
+  configured: boolean;
+  masked: string;
+}
+
+export type SecretsStatus = Record<string, SecretStatus>;

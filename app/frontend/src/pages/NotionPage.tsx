@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { usePrioritizedNotion, useRefreshPrioritizedNotion, useDismissPrioritizedItem, useCreateIssue } from '../api/hooks';
 import { TimeAgo } from '../components/shared/TimeAgo';
 import { useFocusNavigation } from '../hooks/useFocusNavigation';
@@ -81,7 +82,9 @@ export function NotionPage() {
       </div>
 
       {isLoading && <p className="empty-state">Loading prioritized pages...</p>}
-      {data?.error && <p className="empty-state">Error: {data.error}</p>}
+      {data?.error && <p className="empty-state">
+        Notion is not connected. Add your integration token in <Link to="/settings">Settings</Link> to see your pages.
+      </p>}
       {!isLoading && !data?.error && items.length === 0 && (
         <p className="empty-state">
           {hiddenCount > 0

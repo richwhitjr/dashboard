@@ -11,7 +11,10 @@ import struct
 import termios
 from pathlib import Path
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+
+from app_config import get_profile, get_prompt_context
+from database import get_db_connection
 
 logger = logging.getLogger(__name__)
 
@@ -19,21 +22,54 @@ router = APIRouter(prefix="/api", tags=["claude"])
 
 REPO_DIR = str(Path(__file__).resolve().parent.parent.parent.parent)
 
-SYSTEM_PROMPT = (
-    "You are Rich Whitcomb's executive assistant and strategic thought partner. "
-    "Rich is the CTO of Osmo, a digital olfaction company. You have full access to "
-    "his dashboard — calendar, email, Slack, Notion, notes, team files, and Granola "
-    "meeting transcripts. Be direct, structured, and actionable. Lead with answers, "
-    "not preamble. Use the dashboard APIs and SQLite database proactively to pull "
-    "context. Rich is deeply technical (chemistry, ML, sensors, software) — match "
-    "his depth. His direct reports: Benjamin Amorelli (Synthetic Chemistry), "
-    "Brian Hauck (Sensors), Laurianne Paravisini (Applied Chemistry), Wesley Qian "
-    "(Applied Research/ML), Karen Mak (Platform Engineering), Versha Prakash "
-    "(Technical Operations), Kasey Luo (Product), Sam Gerstein (SRE), "
-    "Guillaume Godin (ML). Exec peers: Alex Wiltschko (CEO), Mike Rytokoski (CCO), "
-    "Nate Pearson (CFO), Mateusz Brzuchacz (COO). "
-    "Run /rich-persona for the full detailed persona and team context."
-)
+
+def _build_system_prompt() -> str:
+    """Build the Claude Code system prompt dynamically from profile and employee DB."""
+    ctx = get_prompt_context()
+
+    # Fetch team info from the database
+    team_lines = []
+    try:
+        with get_db_connection(readonly=True) as db:
+            rows = db.execute(
+                "SELECT name, title, is_executive FROM employees ORDER BY is_executive DESC, name"
+            ).fetchall()
+
+        direct_reports = []
+        executives = []
+        for r in rows:
+            label = f"{r['name']} ({r['title']})" if r["title"] else r["name"]
+            if r["is_executive"]:
+                executives.append(label)
+            else:
+                direct_reports.append(label)
+
+        if direct_reports:
+            team_lines.append(f"Direct reports: {', '.join(direct_reports)}.")
+        if executives:
+            team_lines.append(f"Exec peers: {', '.join(executives)}.")
+    except Exception:
+        pass  # Gracefully degrade if DB is unavailable
+
+    team_info = " ".join(team_lines)
+
+    profile = get_profile()
+    user_name = profile.get("user_name", "").strip()
+
+    return (
+        f"You are the executive assistant and strategic thought partner {ctx}. "
+        "You have full access to the user's dashboard -- calendar, email, Slack, Notion, "
+        "notes, team files, and Granola meeting transcripts. Be direct, structured, and "
+        "actionable. Lead with answers, not preamble. Use the dashboard APIs and SQLite "
+        "database proactively to pull context. "
+        + (f"{team_info} " if team_info else "")
+        + (
+            f"Run /{user_name.lower().split()[0]}-persona for the full detailed persona and team context."
+            if user_name
+            else ""
+        )
+    )
+
 
 MAX_CONCURRENT = 5
 _active_sessions: set[int] = set()  # PIDs of active child processes
@@ -68,7 +104,7 @@ async def _kill_and_wait(pid: int, timeout: float = 3.0):
 
 
 @router.websocket("/ws/claude")
-async def claude_terminal(ws: WebSocket):
+async def claude_terminal(ws: WebSocket, persona_id: int | None = Query(None)):
     await ws.accept()
 
     # Check concurrent session limit
@@ -76,6 +112,17 @@ async def claude_terminal(ws: WebSocket):
         if len(_active_sessions) >= MAX_CONCURRENT:
             await ws.close(code=4429, reason="Too many concurrent sessions")
             return
+
+    # Build system prompt, optionally augmented with persona
+    system_prompt = _build_system_prompt()
+    if persona_id:
+        try:
+            with get_db_connection(readonly=True) as db:
+                row = db.execute("SELECT system_prompt FROM personas WHERE id = ?", (persona_id,)).fetchone()
+            if row and row["system_prompt"]:
+                system_prompt += "\n\n--- Persona ---\n" + row["system_prompt"]
+        except Exception:
+            pass  # Gracefully degrade if DB lookup fails
 
     # Fork a PTY running claude
     child_pid, fd = pty.fork()
@@ -86,7 +133,7 @@ async def claude_terminal(ws: WebSocket):
         os.environ["TERM"] = "xterm-256color"
         # Clear nested-session guard so Claude Code doesn't refuse to start
         os.environ.pop("CLAUDECODE", None)
-        os.execlp("claude", "claude", "--system-prompt", SYSTEM_PROMPT)
+        os.execlp("claude", "claude", "--system-prompt", system_prompt)
         # execlp never returns
 
     # Parent process — register and relay between WebSocket and PTY

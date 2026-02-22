@@ -2,10 +2,8 @@
 
 import json
 import logging
-import os
-from pathlib import Path
 
-from database import get_db
+from database import batch_upsert, get_db_connection, get_write_db
 from utils.notion_blocks import blocks_to_text
 
 try:
@@ -23,16 +21,11 @@ SNIPPET_TOP_N = 10  # Only fetch content snippets for top-scored pages
 
 
 def _get_token() -> str:
-    token = os.environ.get("NOTION_TOKEN", "")
+    from app_config import get_secret
+
+    token = get_secret("NOTION_TOKEN") or ""
     if not token:
-        env_path = Path(__file__).parent.parent / ".env"
-        if env_path.exists():
-            for line in env_path.read_text().splitlines():
-                if line.startswith("NOTION_TOKEN="):
-                    token = line.split("=", 1)[1].strip().strip('"')
-                    break
-    if not token:
-        raise ValueError("NOTION_TOKEN not set. Add it to app/backend/.env")
+        raise ValueError("NOTION_TOKEN not configured. Add it in Settings or set the environment variable.")
     return token
 
 
@@ -71,47 +64,48 @@ def _fetch_page_snippet(client: "httpx.Client", headers: dict, page_id: str) -> 
         return ""
 
 
-def _build_scoring_context(db) -> dict:
+def _build_scoring_context() -> dict:
     """Gather current work context for LLM relevance scoring."""
-    calendar_today = [
-        dict(r)
-        for r in db.execute(
-            "SELECT summary, start_time, attendees_json FROM calendar_events "
-            "WHERE date(start_time) = date('now') ORDER BY start_time"
-        ).fetchall()
-    ]
+    with get_db_connection(readonly=True) as db:
+        calendar_today = [
+            dict(r)
+            for r in db.execute(
+                "SELECT summary, start_time, attendees_json FROM calendar_events "
+                "WHERE date(start_time) = date('now') ORDER BY start_time"
+            ).fetchall()
+        ]
 
-    meetings_upcoming = [
-        dict(r)
-        for r in db.execute(
-            "SELECT summary, start_time, attendees_json FROM calendar_events "
-            "WHERE start_time > datetime('now') ORDER BY start_time LIMIT 5"
-        ).fetchall()
-    ]
+        meetings_upcoming = [
+            dict(r)
+            for r in db.execute(
+                "SELECT summary, start_time, attendees_json FROM calendar_events "
+                "WHERE start_time > datetime('now') ORDER BY start_time LIMIT 5"
+            ).fetchall()
+        ]
 
-    open_notes = [
-        dict(r)
-        for r in db.execute(
-            "SELECT text, priority, is_one_on_one FROM notes WHERE status = 'open' ORDER BY priority DESC LIMIT 15"
-        ).fetchall()
-    ]
+        open_notes = [
+            dict(r)
+            for r in db.execute(
+                "SELECT text, priority, is_one_on_one FROM notes WHERE status = 'open' ORDER BY priority DESC LIMIT 15"
+            ).fetchall()
+        ]
 
-    slack_recent = [
-        dict(r)
-        for r in db.execute(
-            "SELECT user_name, text, channel_name FROM slack_messages ORDER BY ts DESC LIMIT 15"
-        ).fetchall()
-    ]
+        slack_recent = [
+            dict(r)
+            for r in db.execute(
+                "SELECT user_name, text, channel_name FROM slack_messages ORDER BY ts DESC LIMIT 15"
+            ).fetchall()
+        ]
 
-    emails_recent = [
-        dict(r)
-        for r in db.execute(
-            "SELECT subject, from_name FROM emails "
-            "WHERE labels_json NOT LIKE '%CATEGORY_PROMOTIONS%' "
-            "AND labels_json NOT LIKE '%CATEGORY_UPDATES%' "
-            "ORDER BY date DESC LIMIT 10"
-        ).fetchall()
-    ]
+        emails_recent = [
+            dict(r)
+            for r in db.execute(
+                "SELECT subject, from_name FROM emails "
+                "WHERE labels_json NOT LIKE '%CATEGORY_PROMOTIONS%' "
+                "AND labels_json NOT LIKE '%CATEGORY_UPDATES%' "
+                "ORDER BY date DESC LIMIT 10"
+            ).fetchall()
+        ]
 
     return {
         "calendar_today": calendar_today,
@@ -122,17 +116,21 @@ def _build_scoring_context(db) -> dict:
     }
 
 
-SCORING_PROMPT = """\
-You are scoring Notion pages by relevance to Rich, the CTO of Osmo. \
-Given his current work context (calendar, tasks, Slack, email) and a list of Notion pages, \
-score each page from 0.0 to 1.0 for how relevant and important it is to him RIGHT NOW.
+def _build_scoring_prompt() -> str:
+    from app_config import get_prompt_context
+
+    ctx = get_prompt_context()
+    return f"""\
+You are scoring Notion pages by relevance {ctx}. \
+Given the user's current work context (calendar, tasks, Slack, email) and a list of Notion pages, \
+score each page from 0.0 to 1.0 for how relevant and important it is to the user RIGHT NOW.
 
 Score higher for pages that:
 - Relate to today's or upcoming meetings
 - Connect to open tasks or 1:1 topics
 - Cover active projects or decisions being discussed in Slack/email
 - Are strategic docs (roadmaps, specs, architecture) actively in use
-- Were recently edited by Rich or his direct reports
+- Were recently edited by the user or their direct reports
 
 Score lower for:
 - Old or archived pages with no current relevance
@@ -161,7 +159,7 @@ def _score_batch_with_gemini(genai_client, page_summaries: list[dict], context_s
         model="gemini-2.0-flash",
         contents=user_message,
         config={
-            "system_instruction": SCORING_PROMPT,
+            "system_instruction": _build_scoring_prompt(),
             "temperature": 0.2,
             "response_mime_type": "application/json",
         },
@@ -178,7 +176,9 @@ def _score_batch_with_gemini(genai_client, page_summaries: list[dict], context_s
 
 def _score_with_gemini(pages: list[dict], context: dict) -> list[dict]:
     """Call Gemini to score Notion pages by relevance, batching to avoid truncation."""
-    api_key = os.environ.get("GEMINI_API_KEY", "")
+    from app_config import get_secret
+
+    api_key = get_secret("GEMINI_API_KEY") or ""
     if not api_key:
         logger.info("GEMINI_API_KEY not set, skipping Notion relevance scoring")
         return []
@@ -275,8 +275,8 @@ def sync_notion_pages(limit: int = 50) -> int:
 
     headers = _get_headers()
 
+    # Phase 1: Fetch page metadata and snippets from API (no DB connection held)
     with httpx.Client(timeout=30) as client:
-        # Phase 1: Fetch a large pool of page metadata (no content yet)
         results = _fetch_all_recent_pages(client, headers, max_pages=limit)
 
         # Deduplicate by title — keep the most recently edited version
@@ -294,14 +294,12 @@ def sync_notion_pages(limit: int = 50) -> int:
         unique_pages = list(seen_titles.values())
         logger.info(f"Fetched {len(results)} pages, {len(unique_pages)} unique by title")
 
-        # Extract structured data (no snippets yet — too expensive for all pages)
         pages = [_extract_page_data(page) for page in unique_pages]
 
-        # Phase 2: Score all pages with Gemini based on titles + context
-        db = get_db()
+        # Phase 2: Score with Gemini (reads DB for context, but closes connection promptly)
         scores_by_id: dict[str, dict] = {}
         try:
-            context = _build_scoring_context(db)
+            context = _build_scoring_context()
             scores = _score_with_gemini(pages, context)
             for item in scores:
                 scores_by_id[item.get("id", "")] = item
@@ -320,18 +318,14 @@ def sync_notion_pages(limit: int = 50) -> int:
 
         logger.info(f"Fetched snippets for top {min(SNIPPET_TOP_N, len(scored_pages))} pages")
 
-    # Insert all pages into DB
+    # Phase 4: Write all pages to DB in batches
+    rows = []
     for p in pages:
         score_data = scores_by_id.get(p["id"], {})
         score = min(1.0, max(0.0, float(score_data.get("score", 0))))
         reason = score_data.get("reason", "")
 
-        db.execute(
-            """INSERT OR REPLACE INTO notion_pages
-               (id, title, url, last_edited_time, last_edited_by,
-                parent_type, parent_id, icon, snippet,
-                relevance_score, relevance_reason)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        rows.append(
             (
                 p["id"],
                 p["title"],
@@ -344,9 +338,18 @@ def sync_notion_pages(limit: int = 50) -> int:
                 p["snippet"],
                 score,
                 reason,
-            ),
+            )
         )
 
-    db.commit()
-    db.close()
+    with get_write_db() as db:
+        batch_upsert(
+            db,
+            """INSERT OR REPLACE INTO notion_pages
+               (id, title, url, last_edited_time, last_edited_by,
+                parent_type, parent_id, icon, snippet,
+                relevance_score, relevance_reason)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows,
+        )
+
     return len(pages)

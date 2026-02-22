@@ -1,19 +1,21 @@
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   useEmployee,
+  useEmployees,
   useUpdateNote,
   useCreateNote,
   useUpdateEmployee,
   useDeleteEmployee,
+  useCreateEmployee,
   useCreateOneOnOneNote,
   useUpdateOneOnOneNote,
   useDeleteOneOnOneNote,
-  useEmployees,
-  useCreateEmployee,
+  useGroups,
 } from '../api/hooks';
 import { MarkdownRenderer } from '../components/shared/MarkdownRenderer';
 import type { MeetingFile, GranolaMeeting, OneOnOneNote, Note } from '../api/types';
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { sanitizeHtml } from '../utils/sanitize';
 
 type UnifiedMeeting = {
   date: string;
@@ -242,7 +244,7 @@ function MeetingModal({ meeting, linkedNotes, onClose }: {
             {meeting.granola_html ? (
               <div
                 className="markdown-content"
-                dangerouslySetInnerHTML={{ __html: meeting.granola_html }}
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(meeting.granola_html) }}
               />
             ) : meeting.content ? (
               <MarkdownRenderer content={meeting.content} />
@@ -272,6 +274,7 @@ export function EmployeePage() {
   const navigate = useNavigate();
   const { data: emp, isLoading } = useEmployee(id!);
   const { data: allEmployees } = useEmployees();
+  const { data: groups } = useGroups();
   const updateNote = useUpdateNote();
   const createNote = useCreateNote();
   const updateEmployee = useUpdateEmployee();
@@ -281,7 +284,7 @@ export function EmployeePage() {
   const updateOneOnOneNote = useUpdateOneOnOneNote();
   const deleteOneOnOneNote = useDeleteOneOnOneNote();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'reports' | 'one-on-ones' | 'role'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'one-on-ones' | 'team' | 'role'>('overview');
   const [expandedMeeting, setExpandedMeeting] = useState<string | null>(null);
   const [oneOnOneText, setOneOnOneText] = useState('');
   const [asyncText, setAsyncText] = useState('');
@@ -292,6 +295,10 @@ export function EmployeePage() {
   const [editTitle, setEditTitle] = useState('');
   const [editReportsTo, setEditReportsTo] = useState('');
   const [editGroup, setEditGroup] = useState('');
+
+  // Add report
+  const [addingReport, setAddingReport] = useState(false);
+  const [newReportName, setNewReportName] = useState('');
 
   // New 1:1 note form
   const [showNewNote, setShowNewNote] = useState(false);
@@ -307,9 +314,6 @@ export function EmployeePage() {
   const [selectedMeeting, setSelectedMeeting] = useState<UnifiedMeeting | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Quick-add direct report
-  const [addingReport, setAddingReport] = useState(false);
-  const [newReportName, setNewReportName] = useState('');
 
   const meetings = useMemo(
     () =>
@@ -419,20 +423,6 @@ export function EmployeePage() {
     setEditingNoteId(null);
   };
 
-  const handleAddReport = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newReportName.trim()) return;
-    createEmployee.mutate(
-      { name: newReportName.trim(), group_name: 'team', reports_to: emp.id },
-      { onSuccess: () => { setNewReportName(''); setAddingReport(false); } }
-    );
-  };
-
-  const handleRemoveReport = (reportId: string, reportName: string) => {
-    if (!confirm(`Remove ${reportName} from ${emp.name}'s direct reports?`)) return;
-    updateEmployee.mutate({ id: reportId, reports_to: null });
-  };
-
   const otherEmployees = allEmployees?.filter((e) => e.id !== emp.id) ?? [];
 
   return (
@@ -485,15 +475,16 @@ export function EmployeePage() {
             </label>
             <label style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>
               Group:
-              <select
+              <input
+                list="edit-group-options"
                 value={editGroup}
                 onChange={(e) => setEditGroup(e.target.value)}
-                style={{ marginLeft: 'var(--space-xs)' }}
-              >
-                <option value="team">Team</option>
-                <option value="exec">Exec</option>
-                <option value="osmo">Osmo</option>
-              </select>
+                placeholder="team"
+                style={{ marginLeft: 'var(--space-xs)', width: '120px' }}
+              />
+              <datalist id="edit-group-options">
+                {(groups ?? ['team']).map(g => <option key={g} value={g} />)}
+              </datalist>
             </label>
           </div>
           <div style={{ display: 'flex', gap: 'var(--space-sm)', marginTop: 'var(--space-sm)' }}>
@@ -529,22 +520,19 @@ export function EmployeePage() {
           Overview
         </button>
         <button
-          className={`tab ${activeTab === 'reports' ? 'active' : ''}`}
-          onClick={() => setActiveTab('reports')}
-        >
-          Direct Reports
-          {emp.direct_reports && emp.direct_reports.length > 0 && (
-            <span style={{ marginLeft: '4px', fontSize: 'var(--text-xs)', color: 'var(--color-text-light)' }}>
-              {emp.direct_reports.length}
-            </span>
-          )}
-        </button>
-        <button
           className={`tab ${activeTab === 'one-on-ones' ? 'active' : ''}`}
           onClick={() => setActiveTab('one-on-ones')}
         >
           1:1 Notes
         </button>
+        {(emp.direct_reports?.length > 0 || true) && (
+          <button
+            className={`tab ${activeTab === 'team' ? 'active' : ''}`}
+            onClick={() => setActiveTab('team')}
+          >
+            Team{emp.direct_reports?.length > 0 && ` (${emp.direct_reports.length})`}
+          </button>
+        )}
         {emp.role_content && (
           <button
             className={`tab ${activeTab === 'role' ? 'active' : ''}`}
@@ -708,60 +696,6 @@ export function EmployeePage() {
             )}
           </div>
 
-        </>
-      )}
-
-      {/* === DIRECT REPORTS TAB === */}
-      {activeTab === 'reports' && (
-        <>
-          <div className="employee-section">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <h2>Direct Reports</h2>
-              <button
-                className="btn-link"
-                onClick={() => { setAddingReport(!addingReport); setNewReportName(''); }}
-              >
-                {addingReport ? 'cancel' : '+ add person'}
-              </button>
-            </div>
-
-            {addingReport && (
-              <form onSubmit={handleAddReport} className="sidebar-inline-add" style={{ marginBottom: 'var(--space-md)' }}>
-                <input
-                  autoFocus
-                  className="note-input"
-                  value={newReportName}
-                  onChange={(e) => setNewReportName(e.target.value)}
-                  placeholder="Name"
-                  style={{ fontSize: 'var(--text-sm)' }}
-                />
-              </form>
-            )}
-
-            {emp.direct_reports && emp.direct_reports.length > 0 ? (
-              <ul className="org-tree-list">
-                {emp.direct_reports.map((dr) => (
-                  <li key={dr.id} className="org-tree-item">
-                    <Link to={`/employees/${dr.id}`} className="org-tree-name">
-                      {dr.name}
-                    </Link>
-                    <span className="org-tree-title">{dr.title}</span>
-                    <button
-                      className="sidebar-remove-btn"
-                      style={{ marginLeft: 'auto' }}
-                      onClick={() => handleRemoveReport(dr.id, dr.name)}
-                    >
-                      &times;
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="empty-state" style={{ padding: 'var(--space-sm) 0' }}>
-                No direct reports.
-              </p>
-            )}
-          </div>
         </>
       )}
 
@@ -949,6 +883,67 @@ export function EmployeePage() {
             ))}
           </div>
         </>
+      )}
+
+      {/* === TEAM TAB === */}
+      {activeTab === 'team' && (
+        <div className="employee-section">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <h2>Reports to {emp.name}</h2>
+            <button
+              className="btn-link"
+              onClick={() => setAddingReport(!addingReport)}
+            >
+              {addingReport ? 'cancel' : '+ add person'}
+            </button>
+          </div>
+
+          {addingReport && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!newReportName.trim()) return;
+                createEmployee.mutate(
+                  {
+                    name: newReportName.trim(),
+                    group_name: emp.group_name || 'team',
+                    reports_to: emp.id,
+                  },
+                  {
+                    onSuccess: () => {
+                      setNewReportName('');
+                      setAddingReport(false);
+                    },
+                  }
+                );
+              }}
+              style={{ marginBottom: 'var(--space-md)' }}
+            >
+              <input
+                className="note-input"
+                autoFocus
+                value={newReportName}
+                onChange={(e) => setNewReportName(e.target.value)}
+                placeholder="Name"
+              />
+            </form>
+          )}
+
+          {emp.direct_reports?.length > 0 ? (
+            <ul className="org-tree-list">
+              {emp.direct_reports.map((dr: { id: string; name: string; title?: string }) => (
+                <li key={dr.id} className="org-tree-item">
+                  <Link to={`/employees/${dr.id}`} className="org-tree-name">
+                    {dr.name}
+                  </Link>
+                  {dr.title && <span className="org-tree-title">{dr.title}</span>}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty-state">No one reports to {emp.name} yet.</p>
+          )}
+        </div>
       )}
 
       {/* === ROLE TAB === */}

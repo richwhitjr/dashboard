@@ -1,4 +1,7 @@
 #!/bin/bash
-PYTHON="/Users/rich/osmo/rich/app/backend/venv/bin/python"
-cd "/Users/rich/osmo/rich/app/backend"
-exec /usr/bin/arch -arm64 "$PYTHON" launch.py 2>/tmp/dashboard-error.log
+# Resolve the project root relative to this .app bundle
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+PYTHON="$PROJECT_ROOT/app/backend/venv/bin/python"
+cd "$PROJECT_ROOT/app/backend"
+exec /usr/bin/arch -arm64 "$PYTHON" launch.py 2>>/tmp/dashboard-backend.log
