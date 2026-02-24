@@ -87,6 +87,7 @@ export function BriefingPage() {
   const { data: connectors } = useConnectors();
   const [selectedThread, setSelectedThread] = useState<{ threadId: string; subject: string } | null>(null);
   const [overnightCollapsed, setOvernightCollapsed] = useState(() => new Date().getHours() >= 14);
+  const [showAllAttention, setShowAllAttention] = useState(false);
 
   const enabled = new Set(connectors?.filter(c => c.enabled).map(c => c.id));
 
@@ -294,7 +295,7 @@ export function BriefingPage() {
               }
             </p>
           )}
-          {attention.map((item, i) => (
+          {(showAllAttention ? attention : attention.slice(0, 5)).map((item, i) => (
             <div
               key={i}
               className={`priority-item priority-urgency-${item.urgency} briefing-nav-item`}
@@ -324,6 +325,15 @@ export function BriefingPage() {
               <div className="priority-item-reason">{item.reason}</div>
             </div>
           ))}
+          {attention.length > 5 && (
+            <button
+              className="priorities-refresh-btn"
+              onClick={() => setShowAllAttention(!showAllAttention)}
+              style={{ marginTop: 'var(--space-xs)' }}
+            >
+              {showAllAttention ? 'Show less' : `Show all (${attention.length})`}
+            </button>
+          )}
         </section>
       </div>
 
