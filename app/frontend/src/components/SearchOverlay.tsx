@@ -33,6 +33,7 @@ const PAGE_COMMANDS: { label: string; sublabel: string; route: string; keywords:
   { label: 'Notes', sublabel: 'Add and manage notes', route: '/notes?focus=1', keywords: ['notes', 'note', 'todo', 'todos'] },
   { label: 'Thoughts', sublabel: 'Add a thought', route: '/thoughts?focus=1', keywords: ['thoughts', 'thought', 'think'] },
   { label: 'Issues', sublabel: 'Track work items', route: '/issues', keywords: ['issues', 'issue', 'bugs', 'tasks', 'work'] },
+  { label: 'Longform', sublabel: 'Blog posts and drafts', route: '/longform', keywords: ['longform', 'blog', 'post', 'writing', 'draft', 'article'] },
   { label: 'Meetings', sublabel: 'Calendar and meeting notes', route: '/meetings', keywords: ['meetings', 'meeting', 'calendar'] },
   { label: 'Email', sublabel: 'Prioritized email', route: '/email', keywords: ['email', 'gmail', 'inbox', 'mail'] },
   { label: 'News', sublabel: 'News feed', route: '/news', keywords: ['news', 'feed'] },
@@ -259,6 +260,22 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
         fullText: iss.description || undefined,
         date: iss.created_at,
         status: iss.status,
+      });
+    }
+
+    // Longform posts
+    for (const lf of r.longform ?? []) {
+      flat.push({
+        category: 'Longform',
+        type: 'longform',
+        id: String(lf.id),
+        label: lf.title,
+        sublabel: `${lf.status} \u2014 ${lf.word_count} words`,
+        navigateTo: `/longform?postId=${lf.id}`,
+        highlightHtml: lf.title_hl,
+        fullText: lf.body_snippet_hl ?? undefined,
+        date: lf.created_at,
+        status: lf.status,
       });
     }
 

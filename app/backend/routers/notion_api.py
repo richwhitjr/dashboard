@@ -1,16 +1,19 @@
 """Live Notion API endpoints for search and page reading."""
 
 import json
+import logging
 import os
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
 from app_config import get_prompt_context, get_secret
 from database import get_db_connection, get_write_db
+from routers._ranking_cache import compute_items_hash
 from utils.notion_blocks import blocks_to_text
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/notion", tags=["notion"])
 
@@ -24,14 +27,7 @@ NOTION_API_BASE = "https://api.notion.com/v1"
 
 
 def _get_headers() -> dict:
-    token = os.environ.get("NOTION_TOKEN", "")
-    if not token:
-        env_path = Path(__file__).parent.parent / ".env"
-        if env_path.exists():
-            for line in env_path.read_text().splitlines():
-                if line.startswith("NOTION_TOKEN="):
-                    token = line.split("=", 1)[1].strip().strip('"')
-                    break
+    token = get_secret("NOTION_TOKEN") or os.environ.get("NOTION_TOKEN", "")
     if not token:
         raise HTTPException(status_code=503, detail="NOTION_TOKEN not configured")
     return {
@@ -51,6 +47,28 @@ def _extract_title(page: dict) -> str:
 
 
 _blocks_to_text = blocks_to_text  # backwards compat for internal use
+
+
+@router.get("/all")
+def get_all_notion(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(30, ge=1, le=100),
+):
+    """Return all synced Notion pages, newest first, with pagination."""
+    with get_db_connection(readonly=True) as db:
+        rows = db.execute(
+            "SELECT id, title, url, last_edited_time, last_edited_by, snippet "
+            "FROM notion_pages ORDER BY last_edited_time DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+        total = db.execute("SELECT COUNT(*) as c FROM notion_pages").fetchone()["c"]
+    return {
+        "items": [dict(r) for r in rows],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + limit < total,
+    }
 
 
 @router.get("/search")
@@ -75,7 +93,8 @@ def search_notion(
             resp.raise_for_status()
             data = resp.json()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Notion search failed: {e}")
+        logger.error("Notion search failed: %s", e)
+        raise HTTPException(status_code=500, detail="Notion search failed")
 
     results = []
     for item in data.get("results", []):
@@ -118,7 +137,8 @@ def get_page(page_id: str):
             resp.raise_for_status()
             page = resp.json()
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Page not found: {e}")
+        logger.error("Notion page not found: %s", e)
+        raise HTTPException(status_code=404, detail="Page not found")
 
     # Extract all properties into readable format
     properties = {}
@@ -179,10 +199,11 @@ def get_page_content(page_id: str):
         with httpx.Client() as client:
             cursor = None
             while True:
-                url = f"{NOTION_API_BASE}/blocks/{page_id}/children?page_size=100"
+                url = f"{NOTION_API_BASE}/blocks/{page_id}/children"
+                params = {"page_size": 100}
                 if cursor:
-                    url += f"&start_cursor={cursor}"
-                resp = client.get(url, headers=headers)
+                    params["start_cursor"] = cursor
+                resp = client.get(url, headers=headers, params=params)
                 resp.raise_for_status()
                 data = resp.json()
                 all_blocks.extend(data.get("results", []))
@@ -190,7 +211,8 @@ def get_page_content(page_id: str):
                     break
                 cursor = data.get("next_cursor")
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Page content not found: {e}")
+        logger.error("Notion page content not found: %s", e)
+        raise HTTPException(status_code=404, detail="Page content not found")
 
     text = _blocks_to_text(all_blocks)
     return {
@@ -308,10 +330,28 @@ def get_prioritized_notion(refresh: bool = Query(False), days: int = Query(7, ge
         for r in rows
     ]
 
+    # Check if input data has changed since last ranking
+    items_hash = compute_items_hash(pages_for_llm)
+    with get_db_connection(readonly=True) as db:
+        cached = db.execute(
+            "SELECT data_json, data_hash FROM cached_notion_priorities ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if cached and cached["data_hash"] == items_hash:
+            logger.info("Notion ranking cache hit (hash match)")
+            data = json.loads(cached["data_json"])
+            data["items"] = [
+                item
+                for item in data.get("items", [])
+                if item["id"] not in dismissed and (item.get("last_edited_time") or "") >= _iso_cutoff(days)
+            ]
+            return data
+
+    logger.info("Notion ranking cache miss — calling Gemini (%d pages)", len(pages_for_llm))
     try:
         ranked = _rank_notion_with_gemini(pages_for_llm)
     except Exception as e:
-        return {"items": [], "error": str(e)}
+        logger.error("Notion ranking failed: %s", e)
+        return {"items": [], "error": "Ranking service unavailable"}
 
     # Build lookup of full page data
     page_lookup = {r["id"]: dict(r) for r in rows}
@@ -343,12 +383,12 @@ def get_prioritized_notion(refresh: bool = Query(False), days: int = Query(7, ge
 
     result = {"items": items}
 
-    # Cache result
+    # Cache result with hash
     with get_write_db() as db:
         db.execute("DELETE FROM cached_notion_priorities")
         db.execute(
-            "INSERT INTO cached_notion_priorities (data_json) VALUES (?)",
-            (json.dumps(result),),
+            "INSERT INTO cached_notion_priorities (data_json, data_hash) VALUES (?, ?)",
+            (json.dumps(result), items_hash),
         )
         db.commit()
 

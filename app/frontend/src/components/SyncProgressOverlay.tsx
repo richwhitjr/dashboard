@@ -138,7 +138,12 @@ export function SyncProgressOverlay() {
     if (!prevRunningRef.current && isRunning) {
       // Sync just started
       setPhase('syncing');
-      setSyncStartedAt(new Date().toISOString());
+      // Use local ISO to match server's datetime.now().isoformat() format.
+      // Subtract 5s buffer — fast sources (granola ~0.2s) may finish before
+      // the frontend detects running=true via polling.
+      const now = new Date();
+      const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000 - 5000);
+      setSyncStartedAt(local.toISOString().replace('Z', ''));
       setLlmStatuses({});
       setLlmErrors({});
       llmStartedRef.current = false;
@@ -231,6 +236,7 @@ export function SyncProgressOverlay() {
               : 'pending';
             const src = sources[key];
             const showCount = status === 'done' && src?.items_synced != null;
+            const duration = src?.duration_seconds;
             const errorMsg = status === 'error' ? shortError(src?.last_error) : '';
             return (
               <div key={key}>
@@ -238,7 +244,10 @@ export function SyncProgressOverlay() {
                   <StepIcon status={status} />
                   <span className="sync-step-label">{label}</span>
                   {showCount && (
-                    <span className="sync-step-count">{src.items_synced} items</span>
+                    <span className="sync-step-count">
+                      {src.items_synced} items
+                      {duration != null && <span className="sync-step-duration"> · {duration}s</span>}
+                    </span>
                   )}
                   {status === 'running' && (
                     <span className="sync-step-hint">syncing…</span>

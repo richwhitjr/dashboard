@@ -1,11 +1,15 @@
 """Live GitHub API endpoints for PR browsing and repo search."""
 
+import logging
 from typing import Optional
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query
 
+logger = logging.getLogger(__name__)
+
 from config import get_github_repo
+from database import get_db_connection
 
 router = APIRouter(prefix="/api/github", tags=["github"])
 
@@ -30,7 +34,8 @@ def _get_headers() -> dict:
 
         return gh_headers()
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"GitHub auth not available: {e}")
+        logger.error("GitHub auth not available: %s", e)
+        raise HTTPException(status_code=503, detail="GitHub auth not available")
 
 
 def _parse_pr(pr: dict) -> dict:
@@ -67,6 +72,53 @@ def _parse_search_item(item: dict) -> dict:
         "updated_at": item.get("updated_at", ""),
         "labels": [lb["name"] for lb in item.get("labels", [])],
         "comments": item.get("comments", 0),
+    }
+
+
+def _filter_dismissed(items: list[dict]) -> list[dict]:
+    """Remove dismissed GitHub items."""
+    with get_db_connection(readonly=True) as db:
+        rows = db.execute(
+            "SELECT item_id FROM dismissed_dashboard_items WHERE source = 'github'"
+        ).fetchall()
+        dismissed = {r["item_id"] for r in rows}
+    return [i for i in items if str(i["number"]) not in dismissed]
+
+
+@router.get("/all")
+def get_all_github_prs(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(30, ge=1, le=100),
+):
+    """Return all synced GitHub PRs from local DB, newest first, with pagination."""
+    import json as _json
+
+    with get_db_connection(readonly=True) as db:
+        rows = db.execute(
+            "SELECT * FROM github_pull_requests ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+        total = db.execute(
+            "SELECT COUNT(*) as c FROM github_pull_requests"
+        ).fetchone()["c"]
+
+    items = []
+    for r in rows:
+        d = dict(r)
+        d["labels"] = _json.loads(d.pop("labels_json", "[]") or "[]")
+        d["requested_reviewers"] = _json.loads(
+            d.pop("requested_reviewers_json", "[]") or "[]"
+        )
+        d["draft"] = bool(d.get("draft"))
+        d["review_requested"] = bool(d.get("review_requested"))
+        items.append(d)
+
+    return {
+        "items": items,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + limit < total,
     }
 
 
@@ -109,6 +161,7 @@ def list_pulls(
                 items = [_parse_search_item(i) for i in data.get("items", [])]
                 for item in items:
                     item["review_requested"] = True
+                items = _filter_dismissed(items)
                 return {"total": data.get("total_count", 0), "count": len(items), "pulls": items}
             else:
                 # Use list PRs endpoint
@@ -128,12 +181,14 @@ def list_pulls(
                 prs = resp.json()
                 if author:
                     prs = [p for p in prs if p.get("user", {}).get("login") == author]
-                pulls = [_parse_pr(p) for p in prs]
+                pulls = _filter_dismissed([_parse_pr(p) for p in prs])
                 return {"total": len(pulls), "count": len(pulls), "pulls": pulls}
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"GitHub API error: {e.response.text[:500]}")
+        logger.error("GitHub API error: %s", e.response.text[:500])
+        raise HTTPException(status_code=e.response.status_code, detail="GitHub API error")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"GitHub request failed: {e}")
+        logger.error("GitHub request failed: %s", e)
+        raise HTTPException(status_code=500, detail="GitHub request failed")
 
 
 @router.get("/pulls/{number}")
@@ -201,9 +256,11 @@ def get_pull(number: int):
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
             raise HTTPException(status_code=404, detail=f"PR #{number} not found in {_require_repo()}")
-        raise HTTPException(status_code=e.response.status_code, detail=f"GitHub API error: {e.response.text[:500]}")
+        logger.error("GitHub API error: %s", e.response.text[:500])
+        raise HTTPException(status_code=e.response.status_code, detail="GitHub API error")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"GitHub request failed: {e}")
+        logger.error("GitHub request failed: %s", e)
+        raise HTTPException(status_code=500, detail="GitHub request failed")
 
 
 @router.get("/search")
@@ -241,9 +298,11 @@ def search_github(
                 "items": items,
             }
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"GitHub search failed: {e.response.text[:500]}")
+        logger.error("GitHub search failed: %s", e.response.text[:500])
+        raise HTTPException(status_code=e.response.status_code, detail="GitHub search failed")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"GitHub search failed: {e}")
+        logger.error("GitHub search failed: %s", e)
+        raise HTTPException(status_code=500, detail="GitHub search failed")
 
 
 @router.get("/search/code")
@@ -284,7 +343,8 @@ def search_code(
                 "items": items,
             }
     except httpx.HTTPStatusError as e:
-        detail = f"GitHub code search failed: {e.response.text[:500]}"
-        raise HTTPException(status_code=e.response.status_code, detail=detail)
+        logger.error("GitHub code search failed: %s", e.response.text[:500])
+        raise HTTPException(status_code=e.response.status_code, detail="GitHub code search failed")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"GitHub code search failed: {e}")
+        logger.error("GitHub code search failed: %s", e)
+        raise HTTPException(status_code=500, detail="GitHub code search failed")

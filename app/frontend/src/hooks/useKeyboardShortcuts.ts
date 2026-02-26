@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 
-export type ShortcutCategory = 'navigation' | 'actions' | 'focus' | 'issues' | 'overlays';
+export type ShortcutCategory = 'navigation' | 'actions' | 'focus' | 'issues' | 'discovery' | 'overlays';
 
 export interface ShortcutDef {
   keys: string;
@@ -15,6 +15,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDef[] = [
   { keys: 'g n', description: 'Go to Notes', category: 'navigation' },
   { keys: 'g t', description: 'Go to Thoughts', category: 'navigation' },
   { keys: 'g i', description: 'Go to Issues', category: 'navigation' },
+  { keys: 'g l', description: 'Go to Longform', category: 'navigation' },
   { keys: 'g m', description: 'Go to Meetings', category: 'navigation' },
   { keys: 'g w', description: 'Go to News', category: 'navigation' },
   { keys: 'g p', description: 'Go to Team', category: 'navigation' },
@@ -29,6 +30,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDef[] = [
   { keys: 'r', description: 'Refresh page data', category: 'actions' },
   { keys: 'u', description: 'Undo last action', category: 'actions' },
   { keys: 's', description: 'Sync all data', category: 'actions' },
+  { keys: 'D', description: 'Discover issues (AI scan)', category: 'actions' },
 
   // Focus
   { keys: 'Tab / j / \u2193', description: 'Next item in list', category: 'focus' },
@@ -50,6 +52,14 @@ export const SHORTCUT_DEFINITIONS: ShortcutDef[] = [
   { keys: 'Delete', description: 'Delete issue', category: 'issues' },
   { keys: 'i', description: 'New issue', category: 'issues' },
 
+  // Discovery (in review overlay)
+  { keys: 'j / \u2193', description: 'Next proposal', category: 'discovery' },
+  { keys: 'k / \u2191', description: 'Previous proposal', category: 'discovery' },
+  { keys: 'Enter', description: 'Accept proposal', category: 'discovery' },
+  { keys: 'x', description: 'Reject proposal', category: 'discovery' },
+  { keys: 'e', description: 'Edit proposal', category: 'discovery' },
+  { keys: 'Escape', description: 'Close review', category: 'discovery' },
+
   // Overlays
   { keys: '\u2318K', description: 'Search / command palette', category: 'overlays' },
   { keys: 'Tab (in \u2318K)', description: 'Quick create (issue/thought/note)', category: 'overlays' },
@@ -64,6 +74,7 @@ const GO_ROUTES: Record<string, string> = {
   n: '/notes',
   t: '/thoughts',
   i: '/issues',
+  l: '/longform',
   m: '/meetings',
   w: '/news',
   p: '/team',
@@ -80,6 +91,7 @@ interface UseKeyboardShortcutsOptions {
   onRefresh: () => void;
   onUndo: () => void;
   onSync: () => void;
+  onDiscoverIssues?: () => void;
   suppressWhen?: boolean;
 }
 
@@ -111,6 +123,13 @@ export function useKeyboardShortcuts(opts: UseKeyboardShortcutsOptions) {
 
       // Guard: skip when overlays are open
       if (o.suppressWhen) return;
+
+      // Shift+D: discover issues (before meta guard since shift is held)
+      if (e.key === 'D' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        o.onDiscoverIssues?.();
+        return;
+      }
 
       // Don't process if meta/ctrl/alt held (except Cmd+K above)
       if (e.metaKey || e.ctrlKey || e.altKey) return;

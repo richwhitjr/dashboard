@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tansta
 import { api } from './client';
 import { pushUndo } from '../hooks/useUndo';
 import type {
+  PaginatedResponse,
   Person,
   PersonDetail,
   PersonLink,
@@ -24,21 +25,29 @@ import type {
   GitHubPullRequestDetail,
   GitHubSearchResult,
   GitHubCodeSearchResult,
+  GranolaMeeting,
   MeetingsResponse,
+  SlackMessage,
   PrioritizedSlackData,
+  NotionPage,
   PrioritizedNotionData,
   PrioritizedEmailData,
+  Email,
   EmailThreadDetail,
   RampData,
   RampBillsResponse,
   Project,
   ProjectsResponse,
   PrioritizedNewsData,
+  DriveFile,
   PrioritizedDriveData,
   GoogleSheetsResponse,
   GoogleDocsResponse,
   GoogleSheet,
   SheetValuesResponse,
+  LongformPost,
+  LongformPostDetail,
+  LongformComment,
   ClaudeSession,
   ClaudeSessionContent,
   Persona,
@@ -46,6 +55,8 @@ import type {
   SetupStatus,
   ConnectorInfo,
   SecretsStatus,
+  DiscoveryStatus,
+  DiscoveryProposalsResponse,
 } from './types';
 
 export function usePeople(filters?: { is_coworker?: boolean; group?: string }) {
@@ -414,12 +425,185 @@ export function useDeleteIssue() {
   });
 }
 
+// --- Issue Discovery ---
+
+export function useDiscoverIssues() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<{ status: string; run_id: number }>('/issues/discover', {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['discovery-status'] });
+    },
+  });
+}
+
+export function useDiscoveryStatus(enabled: boolean = false) {
+  return useQuery({
+    queryKey: ['discovery-status'],
+    queryFn: () => api.get<DiscoveryStatus>('/issues/discover/status'),
+    refetchInterval: () => {
+      return enabled ? 1000 : false;
+    },
+    enabled,
+  });
+}
+
+export function useDiscoveryProposals(runId: number | null) {
+  return useQuery({
+    queryKey: ['discovery-proposals', runId],
+    queryFn: () => api.get<DiscoveryProposalsResponse>(
+      `/issues/discover/proposals${runId ? `?run_id=${runId}` : ''}`
+    ),
+    enabled: runId !== null,
+  });
+}
+
+export function useAcceptProposal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ proposalId, overrides }: { proposalId: number; overrides?: Record<string, unknown> }) =>
+      api.post(`/issues/discover/accept/${proposalId}`, overrides || {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['discovery-proposals'] });
+      qc.invalidateQueries({ queryKey: ['issues'] });
+    },
+  });
+}
+
+export function useRejectProposal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (proposalId: number) => api.post(`/issues/discover/reject/${proposalId}`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['discovery-proposals'] });
+    },
+  });
+}
+
+export function useBulkDiscoveryAction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { action: 'accept_all' | 'reject_all'; run_id: number }) =>
+      api.post('/issues/discover/bulk', body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['discovery-proposals'] });
+      qc.invalidateQueries({ queryKey: ['issues'] });
+    },
+  });
+}
+
 export function useSearchMeetings(query: string) {
   return useQuery({
     queryKey: ['search-meetings', query],
     queryFn: () => api.get<MeetingSearchResult[]>(`/issues/search-meetings?q=${encodeURIComponent(query)}`),
     enabled: query.length > 0,
     staleTime: 10_000,
+  });
+}
+
+// --- Longform ---
+
+export function useLongformPosts(filters?: {
+  status?: string;
+  tag?: string;
+  search?: string;
+  sort_by?: string;
+  sort_dir?: string;
+}) {
+  const params = new URLSearchParams();
+  if (filters?.status) params.set('status', filters.status);
+  if (filters?.tag) params.set('tag', filters.tag);
+  if (filters?.search) params.set('search', filters.search);
+  if (filters?.sort_by) params.set('sort_by', filters.sort_by);
+  if (filters?.sort_dir) params.set('sort_dir', filters.sort_dir);
+  const qs = params.toString();
+  return useQuery({
+    queryKey: ['longform', filters],
+    queryFn: () => api.get<LongformPost[]>(`/longform${qs ? `?${qs}` : ''}`),
+  });
+}
+
+export function useLongformPost(id: number | null) {
+  return useQuery({
+    queryKey: ['longform', id],
+    queryFn: () => api.get<LongformPostDetail>(`/longform/${id}`),
+    enabled: id !== null,
+  });
+}
+
+export function useLongformTags() {
+  return useQuery({
+    queryKey: ['longform-tags'],
+    queryFn: () => api.get<string[]>('/longform/tags'),
+    staleTime: 30_000,
+  });
+}
+
+export function useCreateLongform() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (post: { title?: string; body?: string; status?: string; tags?: string[] }) =>
+      api.post<LongformPost>('/longform', post),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['longform'] });
+      qc.invalidateQueries({ queryKey: ['search'] });
+    },
+  });
+}
+
+export function useUpdateLongform() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...update }: { id: number; title?: string; body?: string; status?: string; tags?: string[] }) =>
+      api.patch<LongformPostDetail>(`/longform/${id}`, update),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['longform'] });
+      qc.invalidateQueries({ queryKey: ['search'] });
+    },
+  });
+}
+
+export function useDeleteLongform() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.delete(`/longform/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['longform'] });
+      qc.invalidateQueries({ queryKey: ['search'] });
+    },
+  });
+}
+
+export function useCreateLongformComment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ postId, text, is_thought }: { postId: number; text: string; is_thought?: boolean }) =>
+      api.post<LongformComment>(`/longform/${postId}/comments`, { text, is_thought }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['longform'] });
+    },
+  });
+}
+
+export function useDeleteLongformComment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ postId, commentId }: { postId: number; commentId: number }) =>
+      api.delete(`/longform/${postId}/comments/${commentId}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['longform'] });
+    },
+  });
+}
+
+export function useCreateLongformFromSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (sessionId: number) =>
+      api.post<LongformPost>(`/longform/from-session/${sessionId}`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['longform'] });
+    },
   });
 }
 
@@ -791,6 +975,17 @@ export function useMeetings(tab: 'upcoming' | 'past') {
   });
 }
 
+export function useAllGranola() {
+  return useInfiniteQuery({
+    queryKey: ['all-granola'],
+    queryFn: ({ pageParam = 0 }) =>
+      api.get<PaginatedResponse<GranolaMeeting>>(`/meetings/granola/all?offset=${pageParam}&limit=${ALL_ITEMS_PAGE_SIZE}`),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) =>
+      lastPage.has_more ? lastPage.offset + lastPage.limit : undefined,
+  });
+}
+
 export function useUpsertMeetingNote() {
   const qc = useQueryClient();
   return useMutation({
@@ -1053,6 +1248,21 @@ export function useDismissPrioritizedItem() {
   return useMutation({
     mutationFn: (body: { source: string; item_id: string }) =>
       api.post('/dashboard/dismiss', body),
+    onMutate: async ({ source, item_id }) => {
+      if (source === 'github') {
+        await qc.cancelQueries({ queryKey: ['github-pulls'] });
+        const allQueries = qc.getQueriesData<{ total: number; count: number; pulls: GitHubPullRequest[] }>({ queryKey: ['github-pulls'] });
+        const snapshots: [readonly unknown[], { total: number; count: number; pulls: GitHubPullRequest[] }][] = [];
+        for (const [key, data] of allQueries) {
+          if (!data) continue;
+          snapshots.push([key, data]);
+          const filtered = data.pulls.filter((pr) => String(pr.number) !== item_id);
+          qc.setQueryData(key, { ...data, count: filtered.length, pulls: filtered });
+        }
+        return { snapshots };
+      }
+      return { snapshots: [] };
+    },
     onSuccess: (_data, { source, item_id }) => {
       qc.invalidateQueries({ queryKey: ['slack-prioritized'] });
       qc.invalidateQueries({ queryKey: ['notion-prioritized'] });
@@ -1060,6 +1270,7 @@ export function useDismissPrioritizedItem() {
       qc.invalidateQueries({ queryKey: ['ramp-prioritized'] });
       qc.invalidateQueries({ queryKey: ['news-prioritized'] });
       qc.invalidateQueries({ queryKey: ['drive-prioritized'] });
+      qc.invalidateQueries({ queryKey: ['github-pulls'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
       pushUndo({
         label: `${source} item dismissed`,
@@ -1070,9 +1281,17 @@ export function useDismissPrioritizedItem() {
           qc.invalidateQueries({ queryKey: ['email-prioritized'] });
           qc.invalidateQueries({ queryKey: ['ramp-prioritized'] });
           qc.invalidateQueries({ queryKey: ['drive-prioritized'] });
+          qc.invalidateQueries({ queryKey: ['github-pulls'] });
           qc.invalidateQueries({ queryKey: ['dashboard'] });
         },
       });
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.snapshots) {
+        for (const [key, data] of context.snapshots) {
+          qc.setQueryData(key, data);
+        }
+      }
     },
   });
 }
@@ -1295,5 +1514,64 @@ export function useUploadPersonaAvatar() {
     mutationFn: ({ id, file }: { id: number; file: File }) =>
       api.upload(`/personas/${id}/avatar`, file),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['personas'] }),
+  });
+}
+
+// --- All Items (paginated from synced DB) ---
+
+const ALL_ITEMS_PAGE_SIZE = 30;
+
+export function useAllEmails() {
+  return useInfiniteQuery({
+    queryKey: ['all-emails'],
+    queryFn: ({ pageParam = 0 }) =>
+      api.get<PaginatedResponse<Email>>(`/gmail/all?offset=${pageParam}&limit=${ALL_ITEMS_PAGE_SIZE}`),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) =>
+      lastPage.has_more ? lastPage.offset + lastPage.limit : undefined,
+  });
+}
+
+export function useAllSlack() {
+  return useInfiniteQuery({
+    queryKey: ['all-slack'],
+    queryFn: ({ pageParam = 0 }) =>
+      api.get<PaginatedResponse<SlackMessage>>(`/slack/all?offset=${pageParam}&limit=${ALL_ITEMS_PAGE_SIZE}`),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) =>
+      lastPage.has_more ? lastPage.offset + lastPage.limit : undefined,
+  });
+}
+
+export function useAllNotion() {
+  return useInfiniteQuery({
+    queryKey: ['all-notion'],
+    queryFn: ({ pageParam = 0 }) =>
+      api.get<PaginatedResponse<NotionPage>>(`/notion/all?offset=${pageParam}&limit=${ALL_ITEMS_PAGE_SIZE}`),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) =>
+      lastPage.has_more ? lastPage.offset + lastPage.limit : undefined,
+  });
+}
+
+export function useAllGitHub() {
+  return useInfiniteQuery({
+    queryKey: ['all-github'],
+    queryFn: ({ pageParam = 0 }) =>
+      api.get<PaginatedResponse<GitHubPullRequest>>(`/github/all?offset=${pageParam}&limit=${ALL_ITEMS_PAGE_SIZE}`),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) =>
+      lastPage.has_more ? lastPage.offset + lastPage.limit : undefined,
+  });
+}
+
+export function useAllDriveFiles() {
+  return useInfiniteQuery({
+    queryKey: ['all-drive'],
+    queryFn: ({ pageParam = 0 }) =>
+      api.get<PaginatedResponse<DriveFile>>(`/drive/all?offset=${pageParam}&limit=${ALL_ITEMS_PAGE_SIZE}`),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) =>
+      lastPage.has_more ? lastPage.offset + lastPage.limit : undefined,
   });
 }

@@ -281,7 +281,7 @@ def sync_notion_pages(limit: int = 50) -> int:
 
     headers = _get_headers()
 
-    # Phase 1: Fetch page metadata and snippets from API (no DB connection held)
+    # Phase 1: Fetch page metadata from API (no DB connection held)
     with httpx.Client(timeout=30) as client:
         results = _fetch_all_recent_pages(client, headers, max_pages=limit)
 
@@ -302,35 +302,59 @@ def sync_notion_pages(limit: int = 50) -> int:
 
         pages = [_extract_page_data(page) for page in unique_pages]
 
-        # Phase 2: Score with Gemini (reads DB for context, but closes connection promptly)
-        scores_by_id: dict[str, dict] = {}
+    # Check which pages have actually changed since last sync
+    with get_db_connection(readonly=True) as db:
+        existing = {
+            r["id"]: (r["last_edited_time"], r["relevance_score"], r["relevance_reason"], r["snippet"])
+            for r in db.execute("SELECT id, last_edited_time, relevance_score, relevance_reason, snippet FROM notion_pages").fetchall()
+        }
+
+    changed_pages = [p for p in pages if p["id"] not in existing or existing[p["id"]][0] != p["last_edited_time"]]
+    unchanged_pages = [p for p in pages if p["id"] in existing and existing[p["id"]][0] == p["last_edited_time"]]
+    logger.info(f"Notion: {len(changed_pages)} changed, {len(unchanged_pages)} unchanged")
+
+    # Phase 2: Only re-score changed pages with Gemini
+    scores_by_id: dict[str, dict] = {}
+    if changed_pages:
         try:
             context = _build_scoring_context()
-            scores = _score_with_gemini(pages, context)
+            scores = _score_with_gemini(changed_pages, context)
             for item in scores:
                 scores_by_id[item.get("id", "")] = item
-            logger.info(f"Scored {len(scores)} Notion pages with Gemini")
+            logger.info(f"Scored {len(scores)} changed Notion pages with Gemini")
         except Exception as e:
             logger.warning(f"Notion relevance scoring failed: {e}")
 
-        # Phase 3: Fetch snippets only for the top-scored pages
-        scored_pages = sorted(
-            pages,
-            key=lambda p: float(scores_by_id.get(p["id"], {}).get("score", 0)),
-            reverse=True,
-        )
-        for p in scored_pages[:SNIPPET_TOP_N]:
-            p["snippet"] = _fetch_page_snippet(client, headers, p["id"])
+    # Phase 3: Fetch snippets only for top-scored changed pages (concurrent)
+    scored_changed = sorted(
+        changed_pages,
+        key=lambda p: float(scores_by_id.get(p["id"], {}).get("score", 0)),
+        reverse=True,
+    )
+    top_pages = scored_changed[:SNIPPET_TOP_N]
 
-        logger.info(f"Fetched snippets for top {min(SNIPPET_TOP_N, len(scored_pages))} pages")
+    if top_pages:
+        import concurrent.futures
 
-    # Phase 4: Write all pages to DB in batches
+        def _fetch_snippet_task(page: dict) -> tuple[str, str]:
+            with httpx.Client(timeout=10) as c:
+                return page["id"], _fetch_page_snippet(c, headers, page["id"])
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(5, len(top_pages))) as pool:
+            for page_id, snippet in pool.map(_fetch_snippet_task, top_pages):
+                for p in changed_pages:
+                    if p["id"] == page_id:
+                        p["snippet"] = snippet
+                        break
+
+        logger.info(f"Fetched snippets for top {len(top_pages)} changed pages (concurrent)")
+
+    # Phase 4: Write all pages to DB
     rows = []
-    for p in pages:
+    for p in changed_pages:
         score_data = scores_by_id.get(p["id"], {})
         score = min(1.0, max(0.0, float(score_data.get("score", 0))))
         reason = score_data.get("reason", "")
-
         rows.append(
             (
                 p["id"],
@@ -344,6 +368,25 @@ def sync_notion_pages(limit: int = 50) -> int:
                 p["snippet"],
                 score,
                 reason,
+            )
+        )
+
+    # Unchanged pages: re-insert with their existing scores/snippets preserved
+    for p in unchanged_pages:
+        ex = existing[p["id"]]
+        rows.append(
+            (
+                p["id"],
+                p["title"],
+                p["url"],
+                p["last_edited_time"],
+                p["last_edited_by"],
+                p["parent_type"],
+                p["parent_id"],
+                p["icon"],
+                ex[3] or "",  # existing snippet
+                ex[1] or 0,  # existing relevance_score
+                ex[2] or "",  # existing relevance_reason
             )
         )
 

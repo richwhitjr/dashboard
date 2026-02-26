@@ -35,7 +35,9 @@ from routers import (
     drive_api,
     github_api,
     gmail,
+    issue_discovery,
     issues,
+    longform,
     meetings,
     news,
     notes,
@@ -107,6 +109,8 @@ app.include_router(sheets_api.router)
 app.include_router(search.router)
 app.include_router(meetings.router)
 app.include_router(issues.router)
+app.include_router(issue_discovery.router)
+app.include_router(longform.router)
 app.include_router(profile.router)
 app.include_router(personas.router)
 app.include_router(briefing.router)

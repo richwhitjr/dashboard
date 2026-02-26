@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useMeetings, useUpsertMeetingNote, useDeleteMeetingNote, useDismissPrioritizedItem, useProfile } from '../api/hooks';
+import { useSearchParams } from 'react-router-dom';
+import { useMeetings, useUpsertMeetingNote, useDeleteMeetingNote, useDismissPrioritizedItem, useProfile, useAllGranola } from '../api/hooks';
 import type { MeetingWithContext } from '../api/types';
 import { useFocusNavigation } from '../hooks/useFocusNavigation';
 import { KeyboardHints } from '../components/shared/KeyboardHints';
+import { InfiniteScrollSentinel } from '../components/shared/InfiniteScrollSentinel';
 import { sanitizeHtml } from '../utils/sanitize';
 
 function formatMeetingTime(startTime: string, endTime: string | null): string {
@@ -696,8 +698,94 @@ function MeetingList({
   );
 }
 
+function GranolaMeetingList() {
+  const allQuery = useAllGranola();
+  const allMeetings = useMemo(() => allQuery.data?.pages.flatMap(p => p.items) ?? [], [allQuery.data]);
+  const allTotal = allQuery.data?.pages[0]?.total ?? 0;
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+  const toggleExpand = useCallback((id: string) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  return (
+    <>
+      {allQuery.isLoading && <p className="empty-state">Loading Granola meetings...</p>}
+      {!allQuery.isLoading && allMeetings.length === 0 && (
+        <p className="empty-state">No synced Granola meetings yet. Run a sync to populate.</p>
+      )}
+      {allTotal > 0 && (
+        <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', marginBottom: 'var(--space-sm)' }}>
+          {allTotal} Granola meeting{allTotal !== 1 ? 's' : ''}
+        </p>
+      )}
+      <div>
+        {allMeetings.map((meeting) => {
+          const isExpanded = expandedIds.has(meeting.id);
+          const hasSummary = !!(meeting.panel_summary_html || meeting.panel_summary_plain);
+          return (
+            <div key={meeting.id} className="dashboard-item-row" onClick={() => { if (hasSummary) toggleExpand(meeting.id); }} style={{ cursor: hasSummary ? 'pointer' : undefined }}>
+              <div
+                className="dashboard-item"
+                style={{ display: 'flex', gap: 'var(--space-sm)', alignItems: 'flex-start', flex: 1, minWidth: 0 }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="dashboard-item-title">
+                    {meeting.granola_link ? (
+                      <a href={meeting.granola_link} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+                        {meeting.title}
+                      </a>
+                    ) : meeting.title}
+                  </div>
+                  <div className="dashboard-item-meta">
+                    {formatMeetingDate(meeting.created_at)}
+                    {' '}&middot;{' '}
+                    {new Date(meeting.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                  </div>
+                  {isExpanded && hasSummary && (
+                    <div className="dashboard-item-expanded">
+                      {meeting.panel_summary_html ? (
+                        <div
+                          className="markdown-content"
+                          dangerouslySetInnerHTML={{ __html: sanitizeHtml(meeting.panel_summary_html) }}
+                        />
+                      ) : (
+                        <div style={{ whiteSpace: 'pre-wrap' }}>{meeting.panel_summary_plain}</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+              {hasSummary && (
+                <button
+                  className="dashboard-expand-btn"
+                  onClick={(e) => { e.stopPropagation(); toggleExpand(meeting.id); }}
+                  title={isExpanded ? 'Collapse summary' : 'Show summary'}
+                >
+                  {isExpanded ? '\u25BE' : '\u25B8'}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <InfiniteScrollSentinel
+        hasNextPage={!!allQuery.hasNextPage}
+        isFetchingNextPage={allQuery.isFetchingNextPage}
+        fetchNextPage={allQuery.fetchNextPage}
+      />
+    </>
+  );
+}
+
 export function MeetingsPage() {
-  const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming');
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get('tab') === 'granola' ? 'granola' : 'upcoming';
+  const [tab, setTab] = useState<'upcoming' | 'past' | 'granola'>(initialTab);
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
 
   // Keyboard handler for tab switching and view toggle
@@ -710,7 +798,7 @@ export function MeetingsPage() {
 
       if (e.key === 't' && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
-        setTab(prev => prev === 'upcoming' ? 'past' : 'upcoming');
+        setTab(prev => prev === 'upcoming' ? 'past' : prev === 'past' ? 'granola' : 'upcoming');
       }
       if (e.key === 'v' && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
@@ -757,9 +845,16 @@ export function MeetingsPage() {
         >
           Past
         </button>
+        <button
+          className={`tab ${tab === 'granola' ? 'active' : ''}`}
+          onClick={() => setTab('granola')}
+        >
+          Granola
+        </button>
       </div>
 
-      <MeetingList tab={tab} viewMode={viewMode} />
+      {(tab === 'upcoming' || tab === 'past') && <MeetingList tab={tab} viewMode={viewMode} />}
+      {tab === 'granola' && <GranolaMeetingList />}
     </div>
   );
 }

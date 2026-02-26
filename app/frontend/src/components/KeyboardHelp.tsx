@@ -11,10 +11,11 @@ const CATEGORY_LABELS: Record<ShortcutCategory, string> = {
   actions: 'Actions',
   focus: 'Focus',
   issues: 'Issues',
+  discovery: 'Issue Discovery',
   overlays: 'Overlays',
 };
 
-const CATEGORY_ORDER: ShortcutCategory[] = ['overlays', 'navigation', 'actions', 'focus', 'issues'];
+const CATEGORY_ORDER: ShortcutCategory[] = ['overlays', 'navigation', 'actions', 'focus', 'issues', 'discovery'];
 
 export function KeyboardHelp({ isOpen, onClose }: KeyboardHelpProps) {
   useEffect(() => {

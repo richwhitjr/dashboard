@@ -1,6 +1,7 @@
 """Google Drive API endpoints — synced files, live search, Docs listing, and LLM prioritization."""
 
 import json
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query
@@ -9,6 +10,9 @@ from googleapiclient.discovery import build
 from app_config import get_prompt_context, get_secret
 from connectors.google_auth import get_google_credentials
 from database import get_db_connection, get_write_db
+from routers._ranking_cache import compute_items_hash
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/drive", tags=["drive"])
 
@@ -18,10 +22,35 @@ def _get_service():
         creds = get_google_credentials()
         return build("drive", "v3", credentials=creds)
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Drive not authenticated: {e}")
+        logger.error("Drive not authenticated: %s", e)
+        raise HTTPException(status_code=503, detail="Drive not authenticated")
 
 
 # --- Synced data endpoints ---
+
+
+@router.get("/all")
+def get_all_drive_files(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(30, ge=1, le=100),
+):
+    """Return all synced Drive files, newest first, with pagination."""
+    with get_db_connection(readonly=True) as db:
+        rows = db.execute(
+            "SELECT * FROM drive_files WHERE trashed = 0 "
+            "ORDER BY modified_time DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+        total = db.execute(
+            "SELECT COUNT(*) as c FROM drive_files WHERE trashed = 0"
+        ).fetchone()["c"]
+    return {
+        "items": [dict(r) for r in rows],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + limit < total,
+    }
 
 
 @router.get("/files")
@@ -110,8 +139,8 @@ def search_drive(
     """Search Drive using Google API directly."""
     service = _get_service()
     try:
-        # Escape single quotes in query for Drive API
-        safe_q = q.replace("'", "\\'")
+        # Escape backslashes first, then single quotes for Drive API query language
+        safe_q = q.replace("\\", "\\\\").replace("'", "\\'")
         results = (
             service.files()
             .list(
@@ -123,7 +152,8 @@ def search_drive(
             .execute()
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Drive search failed: {e}")
+        logger.error("Drive search failed: %s", e)
+        raise HTTPException(status_code=500, detail="Drive search failed")
 
     files = []
     for f in results.get("files", []):
@@ -257,10 +287,24 @@ def get_prioritized_drive(refresh: bool = Query(False), days: int = Query(30, ge
         )
         file_lookup[rd["id"]] = rd
 
+    # Check if input data has changed since last ranking
+    items_hash = compute_items_hash(files_for_llm)
+    with get_db_connection(readonly=True) as db:
+        cached = db.execute(
+            "SELECT data_json, data_hash FROM cached_drive_priorities ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if cached and cached["data_hash"] == items_hash:
+            logger.info("Drive ranking cache hit (hash match)")
+            data = json.loads(cached["data_json"])
+            data["items"] = [item for item in data.get("items", []) if item["id"] not in dismissed]
+            return data
+
+    logger.info("Drive ranking cache miss — calling Gemini (%d files)", len(files_for_llm))
     try:
         ranked = _rank_drive_with_gemini(files_for_llm)
     except Exception as e:
-        return {"items": [], "error": str(e)}
+        logger.error("Drive ranking failed: %s", e)
+        return {"items": [], "error": "Ranking service unavailable"}
 
     # Merge rankings with file data
     items = []
@@ -283,12 +327,12 @@ def get_prioritized_drive(refresh: bool = Query(False), days: int = Query(30, ge
 
     result = {"items": items}
 
-    # Cache result
+    # Cache result with hash
     with get_write_db() as db:
         db.execute("DELETE FROM cached_drive_priorities")
         db.execute(
-            "INSERT INTO cached_drive_priorities (data_json) VALUES (?)",
-            (json.dumps(result, default=str),),
+            "INSERT INTO cached_drive_priorities (data_json, data_hash) VALUES (?, ?)",
+            (json.dumps(result, default=str), items_hash),
         )
         db.commit()
 

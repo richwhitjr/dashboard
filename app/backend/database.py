@@ -140,6 +140,7 @@ FTS_TABLES = [
     "fts_drive_files",
     "fts_google_sheets",
     "fts_google_docs",
+    "fts_longform",
 ]
 
 

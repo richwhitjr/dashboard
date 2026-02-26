@@ -1,6 +1,8 @@
 """Shared Google API authentication."""
 
 import json
+import os
+import stat
 from pathlib import Path
 
 from google.auth.transport.requests import Request
@@ -35,6 +37,7 @@ def get_google_credentials() -> Credentials:
         if _cached_creds.expired and _cached_creds.refresh_token:
             _cached_creds.refresh(Request())
             TOKEN_PATH.write_text(_cached_creds.to_json())
+            os.chmod(TOKEN_PATH, stat.S_IRUSR | stat.S_IWUSR)
         if _cached_creds.valid:
             return _cached_creds
 
@@ -58,6 +61,7 @@ def get_google_credentials() -> Credentials:
         _cached_creds.refresh(Request())
         # Save for future use
         TOKEN_PATH.write_text(_cached_creds.to_json())
+        os.chmod(TOKEN_PATH, stat.S_IRUSR | stat.S_IWUSR)
         return _cached_creds
     except Exception:
         raise RuntimeError(
@@ -95,4 +99,5 @@ def run_oauth_flow() -> Credentials:
     global _cached_creds
     _cached_creds = creds
     TOKEN_PATH.write_text(creds.to_json())
+    os.chmod(TOKEN_PATH, stat.S_IRUSR | stat.S_IWUSR)
     return creds

@@ -28,36 +28,50 @@ def sync_docs_data() -> int:
     authed_http = google_auth_httplib2.AuthorizedHttp(creds, http=httplib2.Http(timeout=API_TIMEOUT))
     drive_service = build("drive", "v3", http=authed_http)
 
-    # Phase 1: Get Doc IDs from drive_files (already synced)
+    # Phase 1: Get Doc IDs from drive_files (already synced) and skip unchanged ones
     with get_db_connection(readonly=True) as db:
         rows = db.execute(
-            "SELECT id, web_view_link, owner_email, owner_name, modified_time "
+            "SELECT id, name, web_view_link, owner_email, owner_name, modified_time "
             "FROM drive_files "
             "WHERE mime_type = 'application/vnd.google-apps.document' "
             "ORDER BY modified_time DESC LIMIT ?",
             (DOCS_SYNC_LIMIT,),
         ).fetchall()
 
+        # Build lookup of already-synced docs to skip unchanged ones
+        existing = {
+            r["id"]: r["modified_time"]
+            for r in db.execute("SELECT id, modified_time FROM google_docs").fetchall()
+        }
+
     if not rows:
         return 0
 
     drive_lookup = {r["id"]: dict(r) for r in rows}
 
+    # Filter to only docs that are new or have a newer modified_time
+    to_fetch = {
+        did: df for did, df in drive_lookup.items()
+        if did not in existing or existing[did] != df["modified_time"]
+    }
+    skipped = len(drive_lookup) - len(to_fetch)
+    if skipped:
+        logger.info("Docs sync: skipping %d unchanged docs", skipped)
+
     # Phase 2: Export document content as plain text via Drive API
     enriched = []
     preview_updates = []
-    for i, (did, df) in enumerate(drive_lookup.items(), 1):
+    for i, (did, df) in enumerate(to_fetch.items(), 1):
         try:
-            logger.info("Docs sync: %d/%d — %s", i, len(drive_lookup), did)
+            logger.info("Docs sync: %d/%d — %s", i, len(to_fetch), did)
             content = drive_service.files().export(fileId=did, mimeType="text/plain").execute()
             if isinstance(content, bytes):
                 content = content.decode("utf-8", errors="replace")
             content_preview = content[:1000].strip()
             word_count = len(content_preview.split())
 
-            # Get title from Drive metadata
-            meta = drive_service.files().get(fileId=did, fields="name").execute()
-            title = meta.get("name", "Untitled")
+            # Title is already in drive_files — no extra API call needed
+            title = df.get("name", "Untitled")
 
             enriched.append(
                 (

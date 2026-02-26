@@ -8,6 +8,7 @@ import { KeyboardHelp } from './components/KeyboardHelp';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { UndoToast, getUndoTrigger } from './components/UndoToast';
 import { SyncProgressOverlay } from './components/SyncProgressOverlay';
+import { IssueDiscoveryOverlay, type DiscoveryPhase } from './components/IssueDiscoveryOverlay';
 import { useSync, useSetupStatus } from './api/hooks';
 import { BriefingPage } from './pages/BriefingPage';
 import { NotePage } from './pages/NotePage';
@@ -20,6 +21,7 @@ import { ThoughtsPage } from './pages/ThoughtsPage';
 import { GitHubPage } from './pages/GitHubPage';
 import { MeetingsPage } from './pages/MeetingsPage';
 import { IssuesPage } from './pages/IssuesPage';
+import { LongformPage } from './pages/LongformPage';
 import { PrioritiesPage } from './pages/PrioritiesPage';
 import { SlackPage } from './pages/SlackPage';
 import { NotionPage } from './pages/NotionPage';
@@ -57,6 +59,7 @@ function AppContent() {
   const isFetching = useIsFetching();
   const [searchOpen, setSearchOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [discoveryPhase, setDiscoveryPhase] = useState<DiscoveryPhase>('hidden');
   const isClaudePage = location.pathname === '/claude';
   const isSetupPage = location.pathname === '/setup';
 
@@ -67,7 +70,14 @@ function AppContent() {
     onRefresh: () => queryClient.invalidateQueries(),
     onUndo: () => { getUndoTrigger()?.(); },
     onSync: () => sync.mutate(),
-    suppressWhen: searchOpen || helpOpen,
+    onDiscoverIssues: () => {
+      if (discoveryPhase === 'hidden') {
+        setDiscoveryPhase('scanning');
+      } else if (discoveryPhase === 'ready') {
+        setDiscoveryPhase('reviewing');
+      }
+    },
+    suppressWhen: searchOpen || helpOpen || discoveryPhase === 'reviewing',
   });
 
   // Setup page gets full-width layout without sidebar
@@ -93,6 +103,7 @@ function AppContent() {
             <Route path="/notes" element={<NotePage />} />
             <Route path="/thoughts" element={<ThoughtsPage />} />
             <Route path="/issues" element={<IssuesPage />} />
+            <Route path="/longform" element={<LongformPage />} />
             <Route path="/meetings" element={<MeetingsPage />} />
             <Route path="/news" element={<NewsPage />} />
             <Route path="/team" element={<OrgTreePage />} />
@@ -117,6 +128,7 @@ function AppContent() {
         </main>
       </div>
       <SyncProgressOverlay />
+      <IssueDiscoveryOverlay phase={discoveryPhase} onPhaseChange={setDiscoveryPhase} />
       <ErrorLogPanel />
       <SearchOverlay
         isOpen={searchOpen}

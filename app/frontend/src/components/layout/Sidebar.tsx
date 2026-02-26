@@ -138,6 +138,7 @@ export function Sidebar() {
           <NavLink to="/notes">Notes</NavLink>
           <NavLink to="/thoughts">Thoughts</NavLink>
           <NavLink to="/issues">Issues</NavLink>
+          <NavLink to="/longform">Longform</NavLink>
           {(active.has('google') || active.has('granola')) && <NavLink to="/meetings">Meetings</NavLink>}
         </nav>
 
@@ -338,7 +339,7 @@ export function Sidebar() {
               setNewName('');
             }
           }}>
-            <input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Group name" />
+            <input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Group name" onBlur={() => { setAddingTo(null); setNewName(''); }} onKeyDown={(e) => { if (e.key === 'Escape') { setAddingTo(null); setNewName(''); } }} />
           </form>
         ) : (
           <button

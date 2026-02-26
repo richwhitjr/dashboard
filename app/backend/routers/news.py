@@ -1,10 +1,14 @@
 import json
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Query
 
 from app_config import get_prompt_context, get_secret
 from database import get_db_connection, get_write_db
+from routers._ranking_cache import compute_items_hash
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/news", tags=["news"])
 
@@ -157,10 +161,28 @@ def get_prioritized_news(refresh: bool = Query(False), days: int = Query(14, ge=
         for r in rows
     ]
 
+    # Check if input data has changed since last ranking
+    items_hash = compute_items_hash(articles_for_llm)
+    with get_db_connection(readonly=True) as db:
+        cached = db.execute(
+            "SELECT data_json, data_hash FROM cached_news_priorities ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if cached and cached["data_hash"] == items_hash:
+            logger.info("News ranking cache hit (hash match)")
+            data = json.loads(cached["data_json"])
+            data["items"] = [
+                item
+                for item in data.get("items", [])
+                if item["id"] not in dismissed and _published_within_days(item.get("published_at"), days)
+            ]
+            return data
+
+    logger.info("News ranking cache miss — calling Gemini (%d articles)", len(articles_for_llm))
     try:
         ranked = _rank_news_with_gemini(articles_for_llm)
     except Exception as e:
-        return {"items": [], "error": str(e)}
+        logger.error("News ranking failed: %s", e)
+        return {"items": [], "error": "Ranking service unavailable"}
 
     # Build lookup of full article data
     article_lookup = {r["id"]: dict(r) for r in rows}
@@ -194,12 +216,12 @@ def get_prioritized_news(refresh: bool = Query(False), days: int = Query(14, ge=
 
     result = {"items": items}
 
-    # Cache result
+    # Cache result with hash
     with get_write_db() as db:
         db.execute("DELETE FROM cached_news_priorities")
         db.execute(
-            "INSERT INTO cached_news_priorities (data_json) VALUES (?)",
-            (json.dumps(result),),
+            "INSERT INTO cached_news_priorities (data_json, data_hash) VALUES (?, ?)",
+            (json.dumps(result), items_hash),
         )
         db.commit()
 

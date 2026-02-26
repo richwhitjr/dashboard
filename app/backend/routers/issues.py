@@ -1,7 +1,10 @@
 import json
+import logging
 import re
 from datetime import datetime
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -373,7 +376,8 @@ Every issue must appear in exactly one group. Create 2-6 groups."""
         groups = json.loads(response.text)
         return {"groups": groups}
     except Exception as e:
-        return {"groups": [], "error": str(e)}
+        logger.error("Issue grouping failed: %s", e)
+        return {"groups": [], "error": "Grouping service unavailable"}
 
 
 @router.get("/{issue_id}")

@@ -1,8 +1,11 @@
 """Unified search endpoint combining FTS5 local search with optional external service queries."""
 
 import asyncio
+import logging
 
 from fastapi import APIRouter, Query
+
+logger = logging.getLogger(__name__)
 
 from database import get_db_connection
 
@@ -40,10 +43,11 @@ def _search_people(db, fts_query: str, raw_query: str, limit: int) -> list[dict]
 
     # Fallback: LIKE for very short queries (1-2 chars) where FTS prefix may not match
     if not results and len(raw_query.strip()) <= 2:
-        pattern = f"%{raw_query}%"
+        escaped = raw_query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
         rows = db.execute(
             """SELECT id, name, title, email, group_name, is_coworker, company
-               FROM people WHERE name LIKE ? OR title LIKE ?
+               FROM people WHERE name LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\'
                LIMIT ?""",
             (pattern, pattern, limit),
         ).fetchall()
@@ -126,6 +130,26 @@ def _search_issues(db, fts_query: str, limit: int) -> list[dict]:
                FROM fts_issues
                JOIN issues i ON i.id = fts_issues.rowid
                WHERE fts_issues MATCH ?
+               ORDER BY rank
+               LIMIT ?""",
+            (fts_query, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def _search_longform(db, fts_query: str, limit: int) -> list[dict]:
+    try:
+        rows = db.execute(
+            """SELECT lp.id, lp.title, lp.status, lp.word_count,
+                      lp.created_at,
+                      highlight(fts_longform, 0, '<mark>', '</mark>') as title_hl,
+                      snippet(fts_longform, 1, '<mark>', '</mark>', '...', 40) as body_snippet_hl,
+                      rank
+               FROM fts_longform
+               JOIN longform_posts lp ON lp.id = fts_longform.rowid
+               WHERE fts_longform MATCH ?
                ORDER BY rank
                LIMIT ?""",
             (fts_query, limit),
@@ -221,7 +245,8 @@ async def _search_external(q: str, limit: int) -> dict:
                 ]
             }
         except Exception as e:
-            return {"items": [], "error": str(e)}
+            logger.error("External search failed: %s", e)
+            return {"items": [], "error": "Search unavailable"}
 
     async def _calendar():
         try:
@@ -241,7 +266,8 @@ async def _search_external(q: str, limit: int) -> dict:
                 ]
             }
         except Exception as e:
-            return {"items": [], "error": str(e)}
+            logger.error("External search failed: %s", e)
+            return {"items": [], "error": "Search unavailable"}
 
     async def _slack():
         try:
@@ -261,7 +287,8 @@ async def _search_external(q: str, limit: int) -> dict:
                 ]
             }
         except Exception as e:
-            return {"items": [], "error": str(e)}
+            logger.error("External search failed: %s", e)
+            return {"items": [], "error": "Search unavailable"}
 
     async def _notion():
         try:
@@ -279,7 +306,8 @@ async def _search_external(q: str, limit: int) -> dict:
                 ]
             }
         except Exception as e:
-            return {"items": [], "error": str(e)}
+            logger.error("External search failed: %s", e)
+            return {"items": [], "error": "Search unavailable"}
 
     async def _github():
         try:
@@ -299,7 +327,8 @@ async def _search_external(q: str, limit: int) -> dict:
                 ]
             }
         except Exception as e:
-            return {"items": [], "error": str(e)}
+            logger.error("External search failed: %s", e)
+            return {"items": [], "error": "Search unavailable"}
 
     async def _drive():
         try:
@@ -319,7 +348,8 @@ async def _search_external(q: str, limit: int) -> dict:
                 ]
             }
         except Exception as e:
-            return {"items": [], "error": str(e)}
+            logger.error("External search failed: %s", e)
+            return {"items": [], "error": "Search unavailable"}
 
     gmail, calendar, slack, notion, github, drive = await asyncio.gather(
         _gmail(), _calendar(), _slack(), _notion(), _github(), _drive()
@@ -362,6 +392,7 @@ async def search(
         if "notes" in source_set:
             results["notes"] = _search_notes(db, fts_query, limit)
             results["issues"] = _search_issues(db, fts_query, limit)
+            results["longform"] = _search_longform(db, fts_query, limit)
             results["one_on_one_notes"] = _search_one_on_one(db, fts_query, limit)
 
         if "meetings" in source_set:

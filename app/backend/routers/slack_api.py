@@ -1,6 +1,7 @@
 """Live Slack API endpoints for search, channel history, and messaging."""
 
 import json
+import logging
 import os
 import ssl
 import time
@@ -13,6 +14,9 @@ from pydantic import BaseModel
 
 from app_config import get_prompt_context, get_secret
 from database import get_db_connection, get_write_db
+from routers._ranking_cache import compute_items_hash
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/slack", tags=["slack"])
 
@@ -34,16 +38,7 @@ def _get_client():
     except ImportError:
         raise HTTPException(status_code=503, detail="slack_sdk not installed")
 
-    token = os.environ.get("SLACK_TOKEN", "")
-    if not token:
-        from pathlib import Path
-
-        env_path = Path(__file__).parent.parent / ".env"
-        if env_path.exists():
-            for line in env_path.read_text().splitlines():
-                if line.startswith("SLACK_TOKEN="):
-                    token = line.split("=", 1)[1].strip().strip('"')
-                    break
+    token = get_secret("SLACK_TOKEN") or os.environ.get("SLACK_TOKEN", "")
     if not token:
         raise HTTPException(status_code=503, detail="SLACK_TOKEN not configured")
 
@@ -57,6 +52,28 @@ class SlackMessage(BaseModel):
     thread_ts: Optional[str] = None
 
 
+@router.get("/all")
+def get_all_slack(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(30, ge=1, le=100),
+):
+    """Return all synced Slack messages, newest first, with pagination."""
+    with get_db_connection(readonly=True) as db:
+        rows = db.execute(
+            "SELECT id, channel_name, channel_type, user_name, text, ts, is_mention, permalink "
+            "FROM slack_messages ORDER BY ts DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+        total = db.execute("SELECT COUNT(*) as c FROM slack_messages").fetchone()["c"]
+    return {
+        "items": [dict(r) for r in rows],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + limit < total,
+    }
+
+
 @router.get("/search")
 def search_slack(
     q: str = Query(..., description="Slack search query (supports from:, in:, has:, etc.)"),
@@ -67,7 +84,8 @@ def search_slack(
     try:
         result = client.search_messages(query=q, count=count)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Slack search failed: {e}")
+        logger.error("Slack search failed: %s", e)
+        raise HTTPException(status_code=500, detail="Slack search failed")
 
     matches = result.get("messages", {}).get("matches", [])
     messages = []
@@ -99,7 +117,8 @@ def list_channels(
     try:
         result = client.conversations_list(types=types, limit=limit, exclude_archived=True)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list channels: {e}")
+        logger.error("Failed to list channels: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to list channels")
 
     channels = []
     for ch in result.get("channels", []):
@@ -135,7 +154,8 @@ def channel_history(
             kwargs["latest"] = latest
         result = client.conversations_history(**kwargs)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get channel history: {e}")
+        logger.error("Failed to get channel history: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to get channel history")
 
     messages = []
     for msg in result.get("messages", []):
@@ -162,7 +182,8 @@ def get_thread(channel_id: str, thread_ts: str):
     try:
         result = client.conversations_replies(channel=channel_id, ts=thread_ts)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get thread: {e}")
+        logger.error("Failed to get thread: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to get thread")
 
     messages = []
     for msg in result.get("messages", []):
@@ -187,7 +208,8 @@ def send_message(msg: SlackMessage):
             kwargs["thread_ts"] = msg.thread_ts
         result = client.chat_postMessage(**kwargs)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to send message: {e}")
+        logger.error("Failed to send message: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to send message")
 
     return {
         "ok": result.get("ok", False),
@@ -305,10 +327,28 @@ def get_prioritized_slack(refresh: bool = Query(False), days: int = Query(7, ge=
         for r in rows
     ]
 
+    # Check if input data has changed since last ranking
+    items_hash = compute_items_hash(messages_for_llm)
+    with get_db_connection(readonly=True) as db:
+        cached = db.execute(
+            "SELECT data_json, data_hash FROM cached_slack_priorities ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if cached and cached["data_hash"] == items_hash:
+            logger.info("Slack ranking cache hit (hash match)")
+            data = json.loads(cached["data_json"])
+            data["items"] = [
+                item
+                for item in data.get("items", [])
+                if item["id"] not in dismissed and _ts_within_days(item.get("ts"), days)
+            ]
+            return data
+
+    logger.info("Slack ranking cache miss — calling Gemini (%d messages)", len(messages_for_llm))
     try:
         ranked = _rank_slack_with_gemini(messages_for_llm)
     except Exception as e:
-        return {"items": [], "error": str(e)}
+        logger.error("Slack ranking failed: %s", e)
+        return {"items": [], "error": "Ranking service unavailable"}
 
     # Build lookup of full message data
     msg_lookup = {r["id"]: dict(r) for r in rows}
@@ -341,13 +381,13 @@ def get_prioritized_slack(refresh: bool = Query(False), days: int = Query(7, ge=
 
     result = {"items": items}
 
-    # Cache result (store full unfiltered set)
+    # Cache result with hash
     all_items_result = {"items": items}
     with get_write_db() as db:
         db.execute("DELETE FROM cached_slack_priorities")
         db.execute(
-            "INSERT INTO cached_slack_priorities (data_json) VALUES (?)",
-            (json.dumps(all_items_result),),
+            "INSERT INTO cached_slack_priorities (data_json, data_hash) VALUES (?, ?)",
+            (json.dumps(all_items_result), items_hash),
         )
         db.commit()
 

@@ -1,10 +1,13 @@
 """Live Google Calendar API endpoints for searching and reading events."""
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from googleapiclient.discovery import build
+
+logger = logging.getLogger(__name__)
 
 from connectors.google_auth import get_google_credentials
 
@@ -16,7 +19,8 @@ def _get_service():
         creds = get_google_credentials()
         return build("calendar", "v3", credentials=creds)
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Calendar not authenticated: {e}")
+        logger.error("Calendar not authenticated: %s", e)
+        raise HTTPException(status_code=503, detail="Calendar not authenticated")
 
 
 def _event_to_dict(event: dict) -> dict:
@@ -79,7 +83,8 @@ def search_calendar(
 
         events_result = service.events().list(**kwargs).execute()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Calendar search failed: {e}")
+        logger.error("Calendar search failed: %s", e)
+        raise HTTPException(status_code=500, detail="Calendar search failed")
 
     events = [_event_to_dict(e) for e in events_result.get("items", [])]
     return {"query": q, "time_range": {"start": time_min, "end": time_max}, "count": len(events), "events": events}
@@ -92,6 +97,7 @@ def get_event(event_id: str):
     try:
         event = service.events().get(calendarId="primary", eventId=event_id).execute()
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Event not found: {e}")
+        logger.error("Calendar event not found: %s", e)
+        raise HTTPException(status_code=404, detail="Event not found")
 
     return _event_to_dict(event)

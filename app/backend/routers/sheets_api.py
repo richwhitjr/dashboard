@@ -1,9 +1,12 @@
 """Google Sheets API endpoints — synced sheets listing and live value reading."""
 
 import json
+import logging
 
 from fastapi import APIRouter, HTTPException, Query
 from googleapiclient.discovery import build
+
+logger = logging.getLogger(__name__)
 
 from connectors.google_auth import get_google_credentials
 from database import get_db_connection
@@ -99,12 +102,14 @@ def get_sheet_values(
         creds = get_google_credentials()
         service = build("sheets", "v4", credentials=creds)
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Sheets not authenticated: {e}")
+        logger.error("Sheets not authenticated: %s", e)
+        raise HTTPException(status_code=503, detail="Sheets not authenticated")
 
     sheet_range = f"'{tab}'!{range}" if tab else range
     try:
         result = service.spreadsheets().values().get(spreadsheetId=sheet_id, range=sheet_range).execute()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to read sheet values: {e}")
+        logger.error("Failed to read sheet values: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to read sheet values")
 
     return {"values": result.get("values", []), "range": result.get("range", "")}

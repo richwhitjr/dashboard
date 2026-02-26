@@ -1,9 +1,13 @@
 import json
+import logging
 import threading
+import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, BackgroundTasks
 
@@ -19,23 +23,27 @@ _sync_active_sources: set[str] = set()
 _sync_cancel = threading.Event()
 
 
-def _update_sync_state(source: str, status: str, error: str | None, items: int):
+def _update_sync_state(source: str, status: str, error: str | None, items: int, elapsed: float | None = None):
     with get_write_db() as db:
         db.execute(
-            """INSERT INTO sync_state (source, last_sync_at, last_sync_status, last_error, items_synced)
-               VALUES (?, ?, ?, ?, ?)
+            """INSERT INTO sync_state (source, last_sync_at, last_sync_status, last_error, items_synced, duration_seconds)
+               VALUES (?, ?, ?, ?, ?, ?)
                ON CONFLICT(source) DO UPDATE SET
                  last_sync_at=excluded.last_sync_at,
                  last_sync_status=excluded.last_sync_status,
                  last_error=excluded.last_error,
-                 items_synced=excluded.items_synced""",
-            (source, datetime.now().isoformat(), status, error, items),
+                 items_synced=excluded.items_synced,
+                 duration_seconds=excluded.duration_seconds""",
+            (source, datetime.now().isoformat(), status, error, items, round(elapsed, 1) if elapsed is not None else None),
         )
         db.commit()
+    if elapsed is not None:
+        logger.info("Sync [%s]: %s — %d items in %.1fs", source, status, items, elapsed)
 
 
 def sync_meeting_files():
     """Refresh meeting_files table from disk for people that have a dir_path."""
+    t0 = time.monotonic()
     # Phase 1: Read people list
     with get_db_connection(readonly=True) as db:
         emp_rows = db.execute(
@@ -85,9 +93,9 @@ def sync_meeting_files():
                 all_rows,
             )
         rebuild_from_db()
-        _update_sync_state("markdown", "success", None, len(all_rows))
+        _update_sync_state("markdown", "success", None, len(all_rows), elapsed=time.monotonic() - t0)
     except Exception:
-        _update_sync_state("markdown", "error", traceback.format_exc(), 0)
+        _update_sync_state("markdown", "error", traceback.format_exc(), 0, elapsed=time.monotonic() - t0)
         raise
 
 
@@ -97,75 +105,81 @@ sync_markdown = sync_meeting_files
 
 def sync_granola():
     """Parse Granola cache and populate granola_meetings table."""
+    t0 = time.monotonic()
     try:
         from connectors.granola import sync_granola_meetings
 
         count = sync_granola_meetings()
-        _update_sync_state("granola", "success", None, count)
+        _update_sync_state("granola", "success", None, count, elapsed=time.monotonic() - t0)
     except ImportError:
         _update_sync_state("granola", "error", "Granola connector not yet implemented", 0)
     except Exception:
-        _update_sync_state("granola", "error", traceback.format_exc(), 0)
+        _update_sync_state("granola", "error", traceback.format_exc(), 0, elapsed=time.monotonic() - t0)
 
 
 def sync_gmail():
+    t0 = time.monotonic()
     try:
         from connectors.gmail import sync_gmail_messages
 
         count = sync_gmail_messages()
-        _update_sync_state("gmail", "success", None, count)
+        _update_sync_state("gmail", "success", None, count, elapsed=time.monotonic() - t0)
     except ImportError:
         _update_sync_state("gmail", "error", "Gmail connector not yet implemented", 0)
     except Exception:
-        _update_sync_state("gmail", "error", traceback.format_exc(), 0)
+        _update_sync_state("gmail", "error", traceback.format_exc(), 0, elapsed=time.monotonic() - t0)
 
 
 def sync_calendar():
+    t0 = time.monotonic()
     try:
         from connectors.calendar_sync import sync_calendar_events
 
         count = sync_calendar_events()
-        _update_sync_state("calendar", "success", None, count)
+        _update_sync_state("calendar", "success", None, count, elapsed=time.monotonic() - t0)
     except ImportError:
         _update_sync_state("calendar", "error", "Calendar connector not yet implemented", 0)
     except Exception:
-        _update_sync_state("calendar", "error", traceback.format_exc(), 0)
+        _update_sync_state("calendar", "error", traceback.format_exc(), 0, elapsed=time.monotonic() - t0)
 
 
 def sync_slack():
+    t0 = time.monotonic()
     try:
         from connectors.slack import sync_slack_data
 
         count = sync_slack_data()
-        _update_sync_state("slack", "success", None, count)
+        _update_sync_state("slack", "success", None, count, elapsed=time.monotonic() - t0)
     except ImportError:
         _update_sync_state("slack", "error", "Slack connector not yet implemented", 0)
     except Exception:
-        _update_sync_state("slack", "error", traceback.format_exc(), 0)
+        _update_sync_state("slack", "error", traceback.format_exc(), 0, elapsed=time.monotonic() - t0)
 
 
 def sync_notion():
+    t0 = time.monotonic()
     try:
         from connectors.notion import sync_notion_pages
 
         count = sync_notion_pages()
-        _update_sync_state("notion", "success", None, count)
+        _update_sync_state("notion", "success", None, count, elapsed=time.monotonic() - t0)
     except ImportError:
         _update_sync_state("notion", "error", "Notion connector not yet implemented", 0)
     except Exception:
-        _update_sync_state("notion", "error", traceback.format_exc(), 0)
+        _update_sync_state("notion", "error", traceback.format_exc(), 0, elapsed=time.monotonic() - t0)
 
 
 def sync_github():
+    t0 = time.monotonic()
     try:
         from connectors.github import sync_github_prs
 
         count = sync_github_prs()
-        _update_sync_state("github", "success", None, count)
+        _update_sync_state("github", "success", None, count, elapsed=time.monotonic() - t0)
     except ImportError:
         _update_sync_state("github", "error", "GitHub connector not available", 0)
     except Exception:
-        _update_sync_state("github", "error", traceback.format_exc(), 0)
+        _update_sync_state("github", "error", traceback.format_exc(), 0, elapsed=time.monotonic() - t0)
 
 
 def _get_last_sync_date(source: str) -> str | None:
@@ -182,32 +196,35 @@ def _get_last_sync_date(source: str) -> str | None:
 
 
 def sync_ramp(org_only: bool = False):
+    t0 = time.monotonic()
     try:
         from connectors.ramp import sync_ramp_transactions
 
         # Use last sync time for incremental fetch instead of full 90-day window
         from_date = _get_last_sync_date("ramp")
         count = sync_ramp_transactions(org_only=org_only, from_date=from_date)
-        _update_sync_state("ramp", "success", None, count)
+        _update_sync_state("ramp", "success", None, count, elapsed=time.monotonic() - t0)
     except ImportError:
         _update_sync_state("ramp", "error", "Ramp connector not available", 0)
     except Exception:
-        _update_sync_state("ramp", "error", traceback.format_exc(), 0)
+        _update_sync_state("ramp", "error", traceback.format_exc(), 0, elapsed=time.monotonic() - t0)
 
 
 def sync_ramp_vendors():
+    t0 = time.monotonic()
     try:
         from connectors.ramp import sync_ramp_vendors as _sync_vendors
 
         count = _sync_vendors()
-        _update_sync_state("ramp_vendors", "success", None, count)
+        _update_sync_state("ramp_vendors", "success", None, count, elapsed=time.monotonic() - t0)
     except ImportError:
         _update_sync_state("ramp_vendors", "error", "Ramp connector not available", 0)
     except Exception:
-        _update_sync_state("ramp_vendors", "error", traceback.format_exc(), 0)
+        _update_sync_state("ramp_vendors", "error", traceback.format_exc(), 0, elapsed=time.monotonic() - t0)
 
 
 def sync_ramp_bills():
+    t0 = time.monotonic()
     try:
         from connectors.ramp import seed_projects_from_vendors
         from connectors.ramp import sync_ramp_bills as _sync_bills
@@ -216,59 +233,63 @@ def sync_ramp_bills():
         from_date = _get_last_sync_date("ramp_bills")
         count = _sync_bills(from_date=from_date, wipe=from_date is None)
         seed_projects_from_vendors()
-        _update_sync_state("ramp_bills", "success", None, count)
+        _update_sync_state("ramp_bills", "success", None, count, elapsed=time.monotonic() - t0)
     except ImportError:
         _update_sync_state("ramp_bills", "error", "Ramp connector not available", 0)
     except Exception:
-        _update_sync_state("ramp_bills", "error", traceback.format_exc(), 0)
+        _update_sync_state("ramp_bills", "error", traceback.format_exc(), 0, elapsed=time.monotonic() - t0)
 
 
 def sync_news():
+    t0 = time.monotonic()
     try:
         from connectors.news import sync_news as _sync_news
 
         count = _sync_news()
-        _update_sync_state("news", "success", None, count)
+        _update_sync_state("news", "success", None, count, elapsed=time.monotonic() - t0)
     except ImportError:
         _update_sync_state("news", "error", "News connector not available", 0)
     except Exception:
-        _update_sync_state("news", "error", traceback.format_exc(), 0)
+        _update_sync_state("news", "error", traceback.format_exc(), 0, elapsed=time.monotonic() - t0)
 
 
 def sync_drive():
+    t0 = time.monotonic()
     try:
         from connectors.drive import sync_drive_files
 
         count = sync_drive_files()
-        _update_sync_state("drive", "success", None, count)
+        _update_sync_state("drive", "success", None, count, elapsed=time.monotonic() - t0)
     except ImportError:
         _update_sync_state("drive", "error", "Drive connector not available", 0)
     except Exception:
-        _update_sync_state("drive", "error", traceback.format_exc(), 0)
+        _update_sync_state("drive", "error", traceback.format_exc(), 0, elapsed=time.monotonic() - t0)
 
 
 def sync_sheets():
+    t0 = time.monotonic()
     try:
         from connectors.sheets import sync_sheets_data
 
         count = sync_sheets_data()
-        _update_sync_state("sheets", "success", None, count)
+        _update_sync_state("sheets", "success", None, count, elapsed=time.monotonic() - t0)
     except ImportError:
         _update_sync_state("sheets", "error", "Sheets connector not available", 0)
     except Exception:
-        _update_sync_state("sheets", "error", traceback.format_exc(), 0)
+        _update_sync_state("sheets", "error", traceback.format_exc(), 0, elapsed=time.monotonic() - t0)
 
 
 def sync_docs():
+    t0 = time.monotonic()
     try:
         from connectors.docs import sync_docs_data
 
         count = sync_docs_data()
-        _update_sync_state("docs", "success", None, count)
+        _update_sync_state("docs", "success", None, count, elapsed=time.monotonic() - t0)
     except ImportError:
         _update_sync_state("docs", "error", "Docs connector not available", 0)
     except Exception:
-        _update_sync_state("docs", "error", traceback.format_exc(), 0)
+        _update_sync_state("docs", "error", traceback.format_exc(), 0, elapsed=time.monotonic() - t0)
 
 
 def _is_enabled(connector_id: str) -> bool:

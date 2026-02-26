@@ -1,12 +1,16 @@
 """Slack Web API connector for DMs and mentions."""
 
+import logging
 import os
 import ssl
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import certifi
 
 from config import SLACK_MESSAGE_LIMIT
 from database import batch_upsert, get_write_db
+
+logger = logging.getLogger(__name__)
 
 try:
     from slack_sdk import WebClient
@@ -55,34 +59,44 @@ def sync_slack_data() -> int:
     # Phase 1: Fetch all data from Slack API (no DB connection held)
     rows = []
 
-    # Cache user display names: user_id -> display_name (avoids duplicate users_info calls)
-    user_name_cache: dict[str, str] = {}
-
-    def get_display_name(user_id: str) -> str:
-        if user_id in user_name_cache:
-            return user_name_cache[user_id]
-        try:
-            info = client.users_info(user=user_id)
-            name = info.get("user", {}).get("real_name", user_id)
-        except Exception:
-            name = user_id
-        user_name_cache[user_id] = name
-        return name
-
-    # 1. Fetch DMs
+    # 1. Fetch DMs — batch user names and parallelize history fetches
     try:
         dm_channels = client.conversations_list(types="im", limit=50)
-        for ch in dm_channels.get("channels", []):
+        channels = dm_channels.get("channels", [])
+
+        # Batch-resolve all DM user names in one API call
+        user_ids = [ch.get("user", "") for ch in channels if ch.get("user")]
+        user_name_cache: dict[str, str] = {}
+        if user_ids:
+            try:
+                # users.list is faster than N individual users.info calls
+                cursor = None
+                while True:
+                    resp = client.users_list(limit=200, cursor=cursor)
+                    for member in resp.get("members", []):
+                        uid = member.get("id", "")
+                        if uid in user_ids or not user_name_cache:
+                            user_name_cache[uid] = member.get("real_name") or member.get("name", uid)
+                    cursor = resp.get("response_metadata", {}).get("next_cursor")
+                    if not cursor:
+                        break
+            except Exception:
+                pass  # Fall back to user_id as name
+
+        def get_display_name(user_id: str) -> str:
+            return user_name_cache.get(user_id, user_id)
+
+        # Fetch DM histories in parallel
+        def _fetch_dm_history(ch: dict) -> list[tuple]:
+            ch_rows = []
             try:
                 history = client.conversations_history(channel=ch["id"], limit=10)
                 other_user_id = ch.get("user", "unknown")
                 user_name = get_display_name(other_user_id)
-
                 for msg in history.get("messages", []):
                     ts = msg["ts"]
                     permalink = _make_permalink(base_url, ch["id"], ts) if base_url else None
-
-                    rows.append(
+                    ch_rows.append(
                         (
                             f"{ch['id']}_{ts}",
                             ch["id"],
@@ -98,7 +112,13 @@ def sync_slack_data() -> int:
                         )
                     )
             except Exception:
-                continue
+                pass
+            return ch_rows
+
+        with ThreadPoolExecutor(max_workers=min(8, len(channels) or 1)) as pool:
+            futs = [pool.submit(_fetch_dm_history, ch) for ch in channels]
+            for f in as_completed(futs):
+                rows.extend(f.result())
     except Exception:
         pass
 

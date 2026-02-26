@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
   usePrioritizedDrive,
@@ -8,11 +8,13 @@ import {
   useDocs,
   useSheets,
   useSheetValues,
+  useAllDriveFiles,
 } from '../api/hooks';
 import type { GoogleSheet } from '../api/types';
 import { TimeAgo } from '../components/shared/TimeAgo';
 import { useFocusNavigation } from '../hooks/useFocusNavigation';
 import { KeyboardHints } from '../components/shared/KeyboardHints';
+import { InfiniteScrollSentinel } from '../components/shared/InfiniteScrollSentinel';
 
 const TABS = ['Files', 'Docs', 'Sheets'] as const;
 type Tab = (typeof TABS)[number];
@@ -117,6 +119,7 @@ function scoreBadge(score: number) {
 // --- Files Tab ---
 
 function FilesTab() {
+  const [mode, setMode] = useState<'priority' | 'all'>('priority');
   const [days, setDays] = useState(7);
   const [minScore, setMinScore] = useState(DEFAULT_MIN_SCORE);
   const { data, isLoading } = usePrioritizedDrive(days);
@@ -140,6 +143,7 @@ function FilesTab() {
 
   const { containerRef } = useFocusNavigation({
     selector: '.dashboard-item-row',
+    enabled: mode === 'priority',
     onDismiss: (i) => {
       if (items[i]) dismiss.mutate({ source: 'drive', item_id: items[i].id });
     },
@@ -155,142 +159,228 @@ function FilesTab() {
     onToggleFilter: () => setMinScore((prev) => (prev === 0 ? DEFAULT_MIN_SCORE : 0)),
   });
 
+  // All-files query
+  const allQuery = useAllDriveFiles();
+  const allFiles = useMemo(() => allQuery.data?.pages.flatMap(p => p.items) ?? [], [allQuery.data]);
+  const allTotal = allQuery.data?.pages[0]?.total ?? 0;
+
   return (
     <>
-      <div className="priorities-header" style={{ marginBottom: 'var(--space-sm)' }}>
-        <span className="day-filter">
-          {DAY_OPTIONS.map((d) => (
-            <button
-              key={d}
-              className={`day-filter-btn${days === d ? ' day-filter-active' : ''}`}
-              onClick={() => setDays(d)}
-            >
-              {d}d
-            </button>
-          ))}
-        </span>
-        <span className="day-filter">
-          {SCORE_OPTIONS.map((s) => (
-            <button
-              key={s}
-              className={`day-filter-btn${minScore === s ? ' day-filter-active' : ''}`}
-              onClick={() => setMinScore(s)}
-              title={s === 0 ? 'Show all (f)' : `Hide scores below ${s} (f)`}
-            >
-              {s === 0 ? 'All' : `${s}+`}
-            </button>
-          ))}
-        </span>
-        <button
-          className="priorities-refresh-btn"
-          onClick={() => refresh.mutate()}
-          disabled={refresh.isPending}
-          title="Re-rank with Gemini"
-        >
-          {refresh.isPending ? 'Ranking...' : 'Refresh'}
+      <div className="github-tabs" style={{ marginBottom: 'var(--space-sm)' }}>
+        <button className={`github-tab ${mode === 'priority' ? 'active' : ''}`} onClick={() => setMode('priority')}>
+          Priority
+        </button>
+        <button className={`github-tab ${mode === 'all' ? 'active' : ''}`} onClick={() => setMode('all')}>
+          All{allTotal > 0 ? ` (${allTotal})` : ''}
         </button>
       </div>
 
-      {isLoading && <p className="empty-state">Loading prioritized files...</p>}
-      {data?.error && (
-        <p className="empty-state">
-          Google Drive is not connected. Set up Google Drive in <Link to="/settings">Settings</Link>{' '}
-          to see your files.
-        </p>
-      )}
-      {!isLoading && !data?.error && items.length === 0 && (
-        <p className="empty-state">
-          {hiddenCount > 0
-            ? `${hiddenCount} file${hiddenCount !== 1 ? 's' : ''} hidden below score ${minScore}`
-            : `No files in the last ${days} day${days > 1 ? 's' : ''}`}
-        </p>
+      {mode === 'priority' && (
+        <>
+          <div className="priorities-header" style={{ marginBottom: 'var(--space-sm)' }}>
+            <span className="day-filter">
+              {DAY_OPTIONS.map((d) => (
+                <button
+                  key={d}
+                  className={`day-filter-btn${days === d ? ' day-filter-active' : ''}`}
+                  onClick={() => setDays(d)}
+                >
+                  {d}d
+                </button>
+              ))}
+            </span>
+            <span className="day-filter">
+              {SCORE_OPTIONS.map((s) => (
+                <button
+                  key={s}
+                  className={`day-filter-btn${minScore === s ? ' day-filter-active' : ''}`}
+                  onClick={() => setMinScore(s)}
+                  title={s === 0 ? 'Show all (f)' : `Hide scores below ${s} (f)`}
+                >
+                  {s === 0 ? 'All' : `${s}+`}
+                </button>
+              ))}
+            </span>
+            <button
+              className="priorities-refresh-btn"
+              onClick={() => refresh.mutate()}
+              disabled={refresh.isPending}
+              title="Re-rank with Gemini"
+            >
+              {refresh.isPending ? 'Ranking...' : 'Refresh'}
+            </button>
+          </div>
+
+          {isLoading && <p className="empty-state">Loading prioritized files...</p>}
+          {data?.error && (
+            <p className="empty-state">
+              Google Drive is not connected. Set up Google Drive in <Link to="/settings">Settings</Link>{' '}
+              to see your files.
+            </p>
+          )}
+          {!isLoading && !data?.error && items.length === 0 && (
+            <p className="empty-state">
+              {hiddenCount > 0
+                ? `${hiddenCount} file${hiddenCount !== 1 ? 's' : ''} hidden below score ${minScore}`
+                : `No files in the last ${days} day${days > 1 ? 's' : ''}`}
+            </p>
+          )}
+
+          <div ref={containerRef}>
+            {items.map((file) => {
+              const isExpanded = expandedIds.has(file.id);
+              const hasPreview = !!file.content_preview || !!file.description;
+              return (
+                <div key={file.id} className="dashboard-item-row">
+                  <div
+                    className="dashboard-item dashboard-item-link"
+                    style={{
+                      display: 'flex',
+                      gap: 'var(--space-sm)',
+                      alignItems: 'flex-start',
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => window.open(file.web_view_link, '_blank')}
+                  >
+                    <div style={{ flexShrink: 0, paddingTop: '2px', display: 'flex', gap: 6, alignItems: 'center' }}>
+                      {scoreBadge(file.priority_score)}
+                      <MimeIcon mime={file.mime_type} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="dashboard-item-title">
+                        {file.name}
+                      </div>
+                      <div className="dashboard-item-meta">
+                        {file.owner_name || 'Unknown'}
+                        {file.modified_by_name &&
+                          file.modified_by_name !== file.owner_name &&
+                          ` (edited by ${file.modified_by_name})`}
+                        {' '}&middot;{' '}
+                        <TimeAgo date={file.modified_time} />
+                        {file.shared && ' \u00B7 Shared'}
+                      </div>
+                      {isExpanded && hasPreview && (
+                        <div className="dashboard-item-expanded">
+                          {file.content_preview || file.description}
+                        </div>
+                      )}
+                      {file.priority_reason && (
+                        <div className="dashboard-item-meta" style={{ fontStyle: 'italic' }}>
+                          {file.priority_reason}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {hasPreview && (
+                    <button
+                      className="dashboard-expand-btn"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        toggleExpand(file.id);
+                      }}
+                      title={isExpanded ? 'Collapse (e)' : 'Expand (e)'}
+                    >
+                      {isExpanded ? '\u25BE' : '\u25B8'}
+                    </button>
+                  )}
+                  <button
+                    className="dashboard-dismiss-btn"
+                    onClick={() => dismiss.mutate({ source: 'drive', item_id: file.id })}
+                    title="Mark as seen"
+                  >
+                    &times;
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          {hiddenCount > 0 && items.length > 0 && (
+            <p className="empty-state" style={{ marginTop: 'var(--space-md)' }}>
+              {hiddenCount} lower-priority file{hiddenCount !== 1 ? 's' : ''} hidden
+              <button
+                className="day-filter-btn"
+                style={{ marginLeft: 'var(--space-sm)' }}
+                onClick={() => setMinScore(0)}
+              >
+                Show all
+              </button>
+            </p>
+          )}
+          {items.length > 0 && (
+            <KeyboardHints
+              hints={['j/k navigate', 'Enter open', 'e expand', 'd dismiss', 'i create issue', 'f filter']}
+            />
+          )}
+        </>
       )}
 
-      <div ref={containerRef}>
-        {items.map((file) => {
-          const isExpanded = expandedIds.has(file.id);
-          const hasPreview = !!file.content_preview || !!file.description;
-          return (
-            <div key={file.id} className="dashboard-item-row">
-              <div
-                className="dashboard-item dashboard-item-link"
-                style={{
-                  display: 'flex',
-                  gap: 'var(--space-sm)',
-                  alignItems: 'flex-start',
-                  cursor: 'pointer',
-                }}
-                onClick={() => window.open(file.web_view_link, '_blank')}
-              >
-                <div style={{ flexShrink: 0, paddingTop: '2px', display: 'flex', gap: 6, alignItems: 'center' }}>
-                  {scoreBadge(file.priority_score)}
-                  <MimeIcon mime={file.mime_type} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="dashboard-item-title">
-                    {file.name}
-                  </div>
-                  <div className="dashboard-item-meta">
-                    {file.owner_name || 'Unknown'}
-                    {file.modified_by_name &&
-                      file.modified_by_name !== file.owner_name &&
-                      ` (edited by ${file.modified_by_name})`}
-                    {' '}&middot;{' '}
-                    <TimeAgo date={file.modified_time} />
-                    {file.shared && ' \u00B7 Shared'}
-                  </div>
-                  {isExpanded && hasPreview && (
-                    <div className="dashboard-item-expanded">
-                      {file.content_preview || file.description}
+      {mode === 'all' && (
+        <>
+          {allQuery.isLoading && <p className="empty-state">Loading files...</p>}
+          {!allQuery.isLoading && allFiles.length === 0 && (
+            <p className="empty-state">No synced Drive files yet. Run a sync to populate.</p>
+          )}
+          <div>
+            {allFiles.map((file) => {
+              const isExpanded = expandedIds.has(file.id);
+              const hasPreview = !!file.content_preview || !!file.description;
+              return (
+                <div key={file.id} className="dashboard-item-row">
+                  <div
+                    className="dashboard-item dashboard-item-link"
+                    style={{
+                      display: 'flex',
+                      gap: 'var(--space-sm)',
+                      alignItems: 'flex-start',
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => window.open(file.web_view_link, '_blank')}
+                  >
+                    <div style={{ flexShrink: 0, paddingTop: '2px' }}>
+                      <MimeIcon mime={file.mime_type} />
                     </div>
-                  )}
-                  {file.priority_reason && (
-                    <div className="dashboard-item-meta" style={{ fontStyle: 'italic' }}>
-                      {file.priority_reason}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="dashboard-item-title">{file.name}</div>
+                      <div className="dashboard-item-meta">
+                        {file.owner_name || 'Unknown'}
+                        {file.modified_by_name &&
+                          file.modified_by_name !== file.owner_name &&
+                          ` (edited by ${file.modified_by_name})`}
+                        {' '}&middot;{' '}
+                        <TimeAgo date={file.modified_time} />
+                        {file.shared && ' \u00B7 Shared'}
+                      </div>
+                      {isExpanded && hasPreview && (
+                        <div className="dashboard-item-expanded">
+                          {file.content_preview || file.description}
+                        </div>
+                      )}
                     </div>
+                  </div>
+                  {hasPreview && (
+                    <button
+                      className="dashboard-expand-btn"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        toggleExpand(file.id);
+                      }}
+                      title={isExpanded ? 'Collapse' : 'Expand'}
+                    >
+                      {isExpanded ? '\u25BE' : '\u25B8'}
+                    </button>
                   )}
                 </div>
-              </div>
-              {hasPreview && (
-                <button
-                  className="dashboard-expand-btn"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    toggleExpand(file.id);
-                  }}
-                  title={isExpanded ? 'Collapse (e)' : 'Expand (e)'}
-                >
-                  {isExpanded ? '\u25BE' : '\u25B8'}
-                </button>
-              )}
-              <button
-                className="dashboard-dismiss-btn"
-                onClick={() => dismiss.mutate({ source: 'drive', item_id: file.id })}
-                title="Mark as seen"
-              >
-                &times;
-              </button>
-            </div>
-          );
-        })}
-      </div>
-      {hiddenCount > 0 && items.length > 0 && (
-        <p className="empty-state" style={{ marginTop: 'var(--space-md)' }}>
-          {hiddenCount} lower-priority file{hiddenCount !== 1 ? 's' : ''} hidden
-          <button
-            className="day-filter-btn"
-            style={{ marginLeft: 'var(--space-sm)' }}
-            onClick={() => setMinScore(0)}
-          >
-            Show all
-          </button>
-        </p>
-      )}
-      {items.length > 0 && (
-        <KeyboardHints
-          hints={['j/k navigate', 'Enter open', 'e expand', 'd dismiss', 'i create issue', 'f filter']}
-        />
+              );
+            })}
+          </div>
+          <InfiniteScrollSentinel
+            hasNextPage={!!allQuery.hasNextPage}
+            isFetchingNextPage={allQuery.isFetchingNextPage}
+            fetchNextPage={allQuery.fetchNextPage}
+          />
+        </>
       )}
     </>
   );

@@ -25,7 +25,7 @@ def sync_sheets_data() -> int:
     authed_http = google_auth_httplib2.AuthorizedHttp(creds, http=httplib2.Http(timeout=API_TIMEOUT))
     sheets_service = build("sheets", "v4", http=authed_http)
 
-    # Phase 1: Get Sheet IDs from drive_files (already synced)
+    # Phase 1: Get Sheet IDs from drive_files (already synced) and skip unchanged ones
     with get_db_connection(readonly=True) as db:
         rows = db.execute(
             "SELECT id, web_view_link, owner_email, owner_name, modified_time "
@@ -35,16 +35,31 @@ def sync_sheets_data() -> int:
             (SHEETS_SYNC_LIMIT,),
         ).fetchall()
 
+        # Build lookup of already-synced sheets to skip unchanged ones
+        existing = {
+            r["id"]: r["modified_time"]
+            for r in db.execute("SELECT id, modified_time FROM google_sheets").fetchall()
+        }
+
     if not rows:
         return 0
 
     drive_lookup = {r["id"]: dict(r) for r in rows}
 
-    # Phase 2: Fetch detailed metadata for each sheet
+    # Filter to only sheets that are new or have a newer modified_time
+    to_fetch = {
+        sid: df for sid, df in drive_lookup.items()
+        if sid not in existing or existing[sid] != df["modified_time"]
+    }
+    skipped = len(drive_lookup) - len(to_fetch)
+    if skipped:
+        logger.info("Sheets sync: skipping %d unchanged sheets", skipped)
+
+    # Phase 2: Fetch detailed metadata for changed sheets only
     enriched = []
-    for i, (sid, df) in enumerate(drive_lookup.items(), 1):
+    for i, (sid, df) in enumerate(to_fetch.items(), 1):
         try:
-            logger.info("Sheets sync: %d/%d — %s", i, len(drive_lookup), sid)
+            logger.info("Sheets sync: %d/%d — %s", i, len(to_fetch), sid)
             meta = sheets_service.spreadsheets().get(spreadsheetId=sid, fields="properties,sheets.properties").execute()
 
             props = meta.get("properties", {})

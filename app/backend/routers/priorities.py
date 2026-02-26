@@ -1,10 +1,14 @@
 import json
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Query
 
 from app_config import get_prompt_context, get_secret
 from database import get_db_connection, get_write_db
+from routers._ranking_cache import compute_items_hash
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/priorities", tags=["priorities"])
 
@@ -216,7 +220,7 @@ def _get_cached(db) -> list[dict] | None:
     return [dict(r) for r in rows]
 
 
-def _save_cache(db, items: list[dict], summary: str = ""):
+def _save_cache(db, items: list[dict], summary: str = "", data_hash: str = ""):
     """Replace cached priorities and summary."""
     db.execute("DELETE FROM cached_priorities")
     for item in items:
@@ -224,12 +228,12 @@ def _save_cache(db, items: list[dict], summary: str = ""):
             "INSERT INTO cached_priorities (title, reason, source, urgency) VALUES (?, ?, ?, ?)",
             (item.get("title", ""), item.get("reason", ""), item.get("source", ""), item.get("urgency", "")),
         )
-    # Save summary
+    # Save summary with hash
     db.execute("DELETE FROM cached_briefing_summary")
     if summary:
         db.execute(
-            "INSERT INTO cached_briefing_summary (id, summary) VALUES (1, ?)",
-            (summary,),
+            "INSERT INTO cached_briefing_summary (id, summary, data_hash) VALUES (1, ?, ?)",
+            (summary, data_hash),
         )
     db.commit()
 
@@ -256,17 +260,31 @@ def get_priorities(refresh: bool = Query(False)):
         # Generate fresh priorities from Gemini
         context = _build_context(db)
 
+    # Check if input data has changed since last ranking
+    ctx_hash = compute_items_hash([context])
+    with get_db_connection(readonly=True) as db:
+        row = db.execute("SELECT data_hash FROM cached_briefing_summary WHERE id = 1").fetchone()
+        if row and row["data_hash"] == ctx_hash:
+            logger.info("Priorities ranking cache hit (hash match)")
+            cached = _get_cached(db)
+            if cached is not None:
+                items = [item for item in cached if item.get("title") not in dismissed]
+                summary = get_cached_summary(db)
+                return {"items": items, "summary": summary}
+
+    logger.info("Priorities ranking cache miss — calling Gemini")
     try:
         result = _call_gemini(context, list(dismissed))
     except Exception as e:
-        return {"items": [], "summary": None, "error": str(e)}
+        logger.error("Priorities ranking failed: %s", e)
+        return {"items": [], "summary": None, "error": "Ranking service unavailable"}
 
     items = result["items"]
     summary = result["summary"]
 
-    # Cache the results
+    # Cache the results with hash
     with get_write_db() as db:
-        _save_cache(db, items, summary)
+        _save_cache(db, items, summary, data_hash=ctx_hash)
 
     items = [item for item in items if item.get("title") not in dismissed]
     return {"items": items, "summary": summary}

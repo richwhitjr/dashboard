@@ -10,10 +10,11 @@ import {
   useSaveClaudeSession,
   useDeleteClaudeSession,
   useCreateNoteFromSession,
+  useCreateLongformFromSession,
   usePersonas,
 } from '../api/hooks';
 import { api } from '../api/client';
-import type { Issue } from '../api/types';
+import type { Issue, LongformPostDetail } from '../api/types';
 
 interface Tab {
   id: string;
@@ -60,6 +61,8 @@ export function ClaudePage({ visible, overlayOpen }: { visible: boolean; overlay
   const navigate = useNavigate();
   const [pendingPersonaId, setPendingPersonaId] = useState<number | null>(null);
   const [pendingIssueId, setPendingIssueId] = useState<number | null>(null);
+  const [pendingLongformId, setPendingLongformId] = useState<number | null>(null);
+  const createLongformFromSession = useCreateLongformFromSession();
 
   // Parse query params reactively (ClaudePage is always mounted, so mount-only won't work)
   useEffect(() => {
@@ -91,6 +94,16 @@ export function ClaudePage({ visible, overlayOpen }: { visible: boolean; overlay
       const issueId = parseInt(issueParam, 10);
       if (!isNaN(issueId)) {
         setPendingIssueId(issueId);
+      }
+      navigate('/claude', { replace: true });
+      return;
+    }
+
+    const longformParam = params.get('longform');
+    if (longformParam) {
+      const longformId = parseInt(longformParam, 10);
+      if (!isNaN(longformId)) {
+        setPendingLongformId(longformId);
       }
       navigate('/claude', { replace: true });
     }
@@ -147,6 +160,36 @@ export function ClaudePage({ visible, overlayOpen }: { visible: boolean; overlay
       console.error('Failed to fetch issue for Claude:', err);
     });
   }, [pendingIssueId]);
+
+  // Create tab when pending longform post is set — fetch post and build prompt
+  useEffect(() => {
+    if (pendingLongformId === null) return;
+    setPendingLongformId(null);
+
+    api.get<LongformPostDetail>(`/longform/${pendingLongformId}`).then((post) => {
+      let prompt = `I have a longform post I'd like help with:\n\n# ${post.title}\n\n`;
+      if (post.body) {
+        const bodyPreview = post.body.length > 3000 ? post.body.slice(0, 3000) + '\n\n...(truncated)' : post.body;
+        prompt += bodyPreview;
+      }
+      prompt += `\n\nStatus: ${post.status} | ${post.word_count} words`;
+      if (post.tags?.length) prompt += ` | Tags: ${post.tags.join(', ')}`;
+      prompt += `\n\nPlease help me improve and refine this post.`;
+
+      tabCounterRef.current += 1;
+      const id = String(nextTabId++);
+      const label = `Post: ${post.title.slice(0, 30)}`;
+      setTabs((prev) => [...prev, { id, label, initialPrompt: prompt }]);
+      setActiveTabId(id);
+      setTabStatus((prev) => {
+        const next = new Map(prev);
+        next.set(id, 'connecting');
+        return next;
+      });
+    }).catch((err) => {
+      console.error('Failed to fetch longform post for Claude:', err);
+    });
+  }, [pendingLongformId]);
 
   const updateTabStatus = useCallback((tabId: string, status: string) => {
     setTabStatus((prev) => {
@@ -456,6 +499,21 @@ export function ClaudePage({ visible, overlayOpen }: { visible: boolean; overlay
                     disabled={createNoteFromSession.isPending}
                   >
                     📝
+                  </button>
+                  <button
+                    className="claude-session-note-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      createLongformFromSession.mutate(s.id, {
+                        onSuccess: (post) => {
+                          navigate(`/longform?postId=${post.id}`);
+                        },
+                      });
+                    }}
+                    title="Save as longform post"
+                    disabled={createLongformFromSession.isPending}
+                  >
+                    📄
                   </button>
                   <button
                     className="claude-session-delete"

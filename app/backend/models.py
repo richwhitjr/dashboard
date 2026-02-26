@@ -134,3 +134,22 @@ class PersonaUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     system_prompt: Optional[str] = None
+
+
+class LongformCreate(BaseModel):
+    title: str = "Untitled"
+    body: str = ""
+    status: str = "draft"
+    tags: Optional[list[str]] = None
+
+
+class LongformUpdate(BaseModel):
+    title: Optional[str] = None
+    body: Optional[str] = None
+    status: Optional[str] = None
+    tags: Optional[list[str]] = None
+
+
+class LongformCommentCreate(BaseModel):
+    text: str
+    is_thought: bool = False

@@ -1,10 +1,11 @@
 import { useState, useMemo, useCallback } from 'react';
-import { useGitHubPulls, useGitHubSearch, useGitHubCodeSearch, useDismissPrioritizedItem, useCreateIssue } from '../api/hooks';
+import { useGitHubPulls, useGitHubSearch, useGitHubCodeSearch, useDismissPrioritizedItem, useCreateIssue, useAllGitHub } from '../api/hooks';
 import { TimeAgo } from '../components/shared/TimeAgo';
 import { useFocusNavigation } from '../hooks/useFocusNavigation';
 import { KeyboardHints } from '../components/shared/KeyboardHints';
+import { InfiniteScrollSentinel } from '../components/shared/InfiniteScrollSentinel';
 
-type Tab = 'reviews' | 'open' | 'search';
+type Tab = 'reviews' | 'open' | 'search' | 'all';
 type SearchMode = 'prs' | 'code';
 
 export function GitHubPage() {
@@ -37,7 +38,7 @@ export function GitHubPage() {
 
   const { containerRef } = useFocusNavigation({
     selector: '.dashboard-item-row',
-    enabled: tab !== 'search',
+    enabled: tab !== 'search' && tab !== 'all',
     onDismiss: (i) => { if (activePulls[i]) dismiss.mutate({ source: 'github', item_id: String(activePulls[i].number) }); },
     onCreateIssue: (i) => { if (activePulls[i]) createIssue.mutate({ title: activePulls[i].title }); },
     onExpand: (i) => { if (activePulls[i]) toggleExpand(activePulls[i].number); },
@@ -47,6 +48,11 @@ export function GitHubPage() {
     e.preventDefault();
     setSubmittedQuery(searchQuery.trim());
   };
+
+  // All-items tab
+  const allQuery = useAllGitHub();
+  const allPRs = useMemo(() => allQuery.data?.pages.flatMap(p => p.items) ?? [], [allQuery.data]);
+  const allTotal = allQuery.data?.pages[0]?.total ?? 0;
 
   return (
     <div ref={containerRef}>
@@ -79,6 +85,12 @@ export function GitHubPage() {
           onClick={() => setTab('search')}
         >
           Search
+        </button>
+        <button
+          className={`github-tab ${tab === 'all' ? 'active' : ''}`}
+          onClick={() => setTab('all')}
+        >
+          All{allTotal > 0 ? ` (${allTotal})` : ''}
         </button>
       </div>
 
@@ -190,6 +202,29 @@ export function GitHubPage() {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {tab === 'all' && (
+        <div className="github-pr-list">
+          {allQuery.isLoading && <p className="empty-state">Loading synced PRs...</p>}
+          {!allQuery.isLoading && allPRs.length === 0 && (
+            <p className="empty-state">No synced PRs yet. Run a sync to populate.</p>
+          )}
+          {allPRs.map((pr) => (
+            <PullRequestRow
+              key={pr.number}
+              pr={pr}
+              expanded={expandedIds.has(pr.number)}
+              onToggleExpand={() => toggleExpand(pr.number)}
+              onDismiss={() => dismiss.mutate({ source: 'github', item_id: String(pr.number) })}
+            />
+          ))}
+          <InfiniteScrollSentinel
+            hasNextPage={!!allQuery.hasNextPage}
+            isFetchingNextPage={allQuery.isFetchingNextPage}
+            fetchNextPage={allQuery.fetchNextPage}
+          />
         </div>
       )}
 

@@ -1,3 +1,11 @@
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  offset: number;
+  limit: number;
+  has_more: boolean;
+}
+
 export interface Person {
   id: string;
   name: string;
@@ -123,6 +131,49 @@ export interface Issue {
   _type?: 'issue';
 }
 
+// --- Issue Discovery ---
+
+export interface ProposedIssue {
+  id: number;
+  run_id: number;
+  title: string;
+  description: string;
+  priority: number;
+  tshirt_size: 's' | 'm' | 'l' | 'xl';
+  source: string;
+  source_context: string;
+  suggested_tags: string[];
+  suggested_people: string[];
+  status: 'pending' | 'accepted' | 'rejected';
+  created_issue_id: number | null;
+  created_at: string;
+}
+
+export interface DiscoveryRun {
+  id: number;
+  started_at: string;
+  completed_at: string | null;
+  status: 'running' | 'completed' | 'failed' | 'cancelled';
+  items_found: number;
+  items_accepted: number;
+  items_rejected: number;
+  error: string | null;
+  since_timestamp: string | null;
+}
+
+export interface DiscoveryStatus {
+  running: boolean;
+  run_id: number | null;
+  current_step: string;
+  steps_done: string[];
+}
+
+export interface DiscoveryProposalsResponse {
+  proposals: ProposedIssue[];
+  run_id: number | null;
+  run: DiscoveryRun | null;
+}
+
 export interface IssueGroup {
   name: string;
   description: string;
@@ -181,6 +232,7 @@ export interface NotionPage {
   title: string;
   url: string;
   last_edited_time: string;
+  last_edited_by?: string;
   snippet?: string;
   relevance_score?: number;
   relevance_reason?: string;
@@ -270,6 +322,7 @@ export interface SyncStatus {
       last_sync_status: string;
       last_error: string | null;
       items_synced: number;
+      duration_seconds: number | null;
     }
   >;
 }
@@ -432,6 +485,16 @@ export interface SearchResults {
       owner_name: string | null;
       name_hl?: string;
       preview_snippet?: string;
+    }[];
+    longform?: {
+      id: number;
+      title: string;
+      body_snippet: string;
+      status: string;
+      word_count: number;
+      title_hl?: string;
+      body_snippet_hl?: string;
+      created_at: string;
     }[];
     gmail?: SearchExternalResults;
     slack?: SearchExternalResults;
@@ -708,6 +771,37 @@ export interface Project {
 
 export interface ProjectsResponse {
   projects: Project[];
+}
+
+// --- Longform ---
+
+export interface LongformComment {
+  id: number;
+  post_id: number;
+  text: string;
+  is_thought: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LongformPost {
+  id: number;
+  title: string;
+  body: string;
+  status: 'draft' | 'published';
+  tags: string[];
+  word_count: number;
+  comment_count: number;
+  thought_count: number;
+  claude_session_id: number | null;
+  created_at: string;
+  updated_at: string;
+  published_at: string | null;
+}
+
+export interface LongformPostDetail extends LongformPost {
+  comments: LongformComment[];
+  thoughts: LongformComment[];
 }
 
 // --- Claude Sessions ---

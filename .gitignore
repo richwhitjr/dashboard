@@ -36,6 +36,7 @@ __pycache__/
 # Test artifacts
 test-results/
 playwright-report/
+.ruff_cache/
 
 # User data (created at runtime)
 teams/

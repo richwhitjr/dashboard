@@ -1,6 +1,7 @@
 """Ramp expenses API — prioritized transaction list with Gemini ranking."""
 
 import json
+import logging
 from datetime import datetime
 from typing import Optional
 
@@ -9,6 +10,9 @@ from pydantic import BaseModel
 
 from app_config import get_prompt_context, get_secret
 from database import get_db_connection, get_write_db
+from routers._ranking_cache import compute_items_hash
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/ramp", tags=["ramp"])
 
@@ -153,6 +157,25 @@ def get_prioritized_ramp(
         for r in rows
     ]
 
+    # Check if input data has changed since last ranking
+    items_hash = compute_items_hash(txns_for_llm)
+    if org_only:
+        with get_db_connection(readonly=True) as db:
+            cached = db.execute(
+                "SELECT data_json, data_hash FROM cached_ramp_priorities ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            if cached and cached["data_hash"] == items_hash:
+                logger.info("Ramp ranking cache hit (hash match)")
+                data = json.loads(cached["data_json"])
+                data["items"] = [
+                    item
+                    for item in data.get("items", [])
+                    if item["id"] not in dismissed and _txn_within_days(item.get("transaction_date"), days)
+                ]
+                data["total_amount"] = sum(item.get("amount", 0) for item in data["items"])
+                return data
+
+    logger.info("Ramp ranking cache miss — calling Gemini (%d transactions)", len(txns_for_llm))
     try:
         ranked = _rank_ramp_with_gemini(txns_for_llm)
     except Exception as e:
@@ -214,13 +237,13 @@ def get_prioritized_ramp(
 
     result = {"items": items, "total_amount": total}
 
-    # Cache result (only for the default org_only view)
+    # Cache result with hash (only for the default org_only view)
     if org_only:
         with get_write_db() as db:
             db.execute("DELETE FROM cached_ramp_priorities")
             db.execute(
-                "INSERT INTO cached_ramp_priorities (data_json) VALUES (?)",
-                (json.dumps(result, default=str),),
+                "INSERT INTO cached_ramp_priorities (data_json, data_hash) VALUES (?, ?)",
+                (json.dumps(result, default=str), items_hash),
             )
             db.commit()
 

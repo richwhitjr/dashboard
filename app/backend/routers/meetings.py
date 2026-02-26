@@ -145,6 +145,35 @@ def list_meetings(
     }
 
 
+@router.get("/granola/all")
+def get_all_granola(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(30, ge=1, le=100),
+):
+    """Return all synced Granola meetings, newest first, with pagination."""
+    with get_db_connection(readonly=True) as db:
+        rows = db.execute(
+            """SELECT id, title, created_at, updated_at, attendees_json,
+                      panel_summary_html, panel_summary_plain,
+                      granola_link, transcript_text, person_id
+               FROM granola_meetings
+               WHERE valid_meeting = 1
+               ORDER BY created_at DESC
+               LIMIT ? OFFSET ?""",
+            (limit, offset),
+        ).fetchall()
+        total = db.execute(
+            "SELECT COUNT(*) as c FROM granola_meetings WHERE valid_meeting = 1"
+        ).fetchone()["c"]
+    return {
+        "items": [_row_to_meeting(r) for r in rows],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + limit < total,
+    }
+
+
 @router.post("/{ref_type}/{ref_id}/notes")
 def upsert_meeting_note(
     ref_type: str,
@@ -219,9 +248,10 @@ def delete_meeting_note(ref_type: str, ref_id: str):
     if ref_type not in ("calendar", "granola"):
         raise HTTPException(400, "ref_type must be 'calendar' or 'granola'")
 
-    MEETING_NOTE_COLS = {"calendar_event_id", "granola_meeting_id"}
+    VALID_COLS = {"calendar_event_id": "calendar", "granola_meeting_id": "granola"}
     col = "calendar_event_id" if ref_type == "calendar" else "granola_meeting_id"
-    assert col in MEETING_NOTE_COLS
+    if col not in VALID_COLS:
+        raise HTTPException(400, "Invalid ref_type")
 
     with get_write_db() as db:
         result = db.execute(f"DELETE FROM meeting_notes WHERE {col} = ?", (ref_id,))

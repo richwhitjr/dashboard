@@ -2,6 +2,7 @@
 
 import base64
 import json
+import logging
 import re
 from collections import OrderedDict
 from datetime import datetime
@@ -12,6 +13,9 @@ from googleapiclient.discovery import build
 from app_config import get_prompt_context, get_secret
 from connectors.google_auth import get_google_credentials
 from database import get_db_connection, get_write_db
+from routers._ranking_cache import compute_items_hash
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/gmail", tags=["gmail"])
 
@@ -21,7 +25,8 @@ def _get_service():
         creds = get_google_credentials()
         return build("gmail", "v1", credentials=creds)
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Gmail not authenticated: {e}")
+        logger.error("Gmail not authenticated: %s", e)
+        raise HTTPException(status_code=503, detail="Gmail not authenticated")
 
 
 def _parse_email_header(header: str) -> tuple[str, str]:
@@ -87,6 +92,28 @@ def _message_to_dict(msg: dict, include_body: bool = False) -> dict:
     return result
 
 
+@router.get("/all")
+def get_all_emails(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(30, ge=1, le=100),
+):
+    """Return all synced emails, newest first, with pagination."""
+    with get_db_connection(readonly=True) as db:
+        rows = db.execute(
+            "SELECT id, thread_id, subject, snippet, from_name, from_email, date, is_unread "
+            "FROM emails ORDER BY date DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+        total = db.execute("SELECT COUNT(*) as c FROM emails").fetchone()["c"]
+    return {
+        "items": [dict(r) for r in rows],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + limit < total,
+    }
+
+
 @router.get("/search")
 def search_gmail(
     q: str = Query(..., description="Gmail search query (e.g. 'from:alice subject:review')"),
@@ -97,7 +124,8 @@ def search_gmail(
     try:
         results = service.users().messages().list(userId="me", q=q, maxResults=max_results).execute()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Gmail search failed: {e}")
+        logger.error("Gmail search failed: %s", e)
+        raise HTTPException(status_code=500, detail="Gmail search failed")
 
     messages = results.get("messages", [])
     if not messages:
@@ -131,7 +159,8 @@ def get_thread(thread_id: str):
     try:
         thread = service.users().threads().get(userId="me", id=thread_id, format="full").execute()
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Thread not found: {e}")
+        logger.error("Gmail thread not found: %s", e)
+        raise HTTPException(status_code=404, detail="Thread not found")
 
     messages = []
     for msg in thread.get("messages", []):
@@ -147,7 +176,8 @@ def get_message(message_id: str):
     try:
         msg = service.users().messages().get(userId="me", id=message_id, format="full").execute()
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Message not found: {e}")
+        logger.error("Gmail message not found: %s", e)
+        raise HTTPException(status_code=404, detail="Message not found")
 
     return _message_to_dict(msg, include_body=True)
 
@@ -275,10 +305,24 @@ def get_prioritized_email(refresh: bool = Query(False), days: int = Query(7, ge=
             }
         )
 
+    # Check if input data has changed since last ranking
+    items_hash = compute_items_hash(emails_for_llm)
+    with get_db_connection(readonly=True) as db:
+        cached = db.execute(
+            "SELECT data_json, data_hash FROM cached_email_priorities ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if cached and cached["data_hash"] == items_hash:
+            logger.info("Email ranking cache hit (hash match)")
+            data = json.loads(cached["data_json"])
+            data["items"] = [item for item in data.get("items", []) if item["id"] not in dismissed]
+            return data
+
+    logger.info("Email ranking cache miss — calling Gemini (%d threads)", len(emails_for_llm))
     try:
         ranked = _rank_email_with_gemini(emails_for_llm)
     except Exception as e:
-        return {"items": [], "error": str(e)}
+        logger.error("Email ranking failed: %s", e)
+        return {"items": [], "error": "Ranking service unavailable"}
 
     # Build thread-level lookup
     thread_lookup = {}
@@ -317,12 +361,12 @@ def get_prioritized_email(refresh: bool = Query(False), days: int = Query(7, ge=
 
     result = {"items": items}
 
-    # Cache result
+    # Cache result with hash
     with get_write_db() as db:
         db.execute("DELETE FROM cached_email_priorities")
         db.execute(
-            "INSERT INTO cached_email_priorities (data_json) VALUES (?)",
-            (json.dumps(result),),
+            "INSERT INTO cached_email_priorities (data_json, data_hash) VALUES (?, ?)",
+            (json.dumps(result), items_hash),
         )
         db.commit()
 

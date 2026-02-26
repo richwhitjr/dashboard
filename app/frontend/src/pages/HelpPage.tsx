@@ -80,8 +80,13 @@ export function HelpPage() {
           Navigate and triage entirely from the keyboard&mdash;arrow keys change priority,
           <code>x</code> marks done.
         </p>
+        <p>
+          Press <kbd>D</kbd> to discover new issues automatically&mdash;AI scans your
+          email, Slack, meetings, Notion, and calendar, then proposes tasks for you to
+          accept or reject.
+        </p>
         <div className="help-keys">
-          <kbd>g</kbd> <kbd>i</kbd> Issues
+          <kbd>g</kbd> <kbd>i</kbd> Issues &middot; <kbd>D</kbd> Discover issues
         </div>
       </section>
 

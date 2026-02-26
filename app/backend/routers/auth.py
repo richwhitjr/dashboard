@@ -282,7 +282,7 @@ def google_auth():
         return {"status": "authenticated"}
     except Exception as e:
         logger.exception("Google OAuth flow failed")
-        return {"status": "error", "error": str(e)}
+        return {"status": "error", "error": "OAuth flow failed"}
 
 
 @router.post("/google/revoke")
