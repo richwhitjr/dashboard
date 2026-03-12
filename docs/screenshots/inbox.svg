@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" fill="none">
+  <!-- Window chrome -->
+  <rect width="800" height="500" rx="10" fill="#fffff8" stroke="#e0ddd1" stroke-width="1.5"/>
+  <rect width="800" height="32" rx="10" fill="#f8f5eb"/>
+  <rect y="24" width="800" height="8" fill="#f8f5eb"/>
+  <circle cx="20" cy="16" r="5" fill="#ff5f57"/>
+  <circle cx="38" cy="16" r="5" fill="#febc2e"/>
+  <circle cx="56" cy="16" r="5" fill="#28c840"/>
+
+  <!-- Sidebar -->
+  <rect x="0" y="32" width="180" height="468" fill="#f8f5eb"/>
+  <line x1="180" y1="32" x2="180" y2="500" stroke="#e0ddd1" stroke-width="1"/>
+
+  <!-- Sidebar nav -->
+  <text x="40" y="67" font-family="Georgia, serif" font-size="12" fill="#555">Today</text>
+  <text x="40" y="91" font-family="Georgia, serif" font-size="12" fill="#555">People</text>
+  <text x="40" y="115" font-family="Georgia, serif" font-size="12" fill="#555">Notes</text>
+  <text x="40" y="139" font-family="Georgia, serif" font-size="12" fill="#555">Issues</text>
+  <text x="40" y="163" font-family="Georgia, serif" font-size="12" fill="#555">Writing</text>
+  <rect x="12" y="178" width="156" height="28" rx="4" fill="#a00000" opacity="0.12"/>
+  <text x="40" y="197" font-family="Georgia, serif" font-size="12" fill="#a00000" font-weight="600">Email</text>
+  <text x="40" y="221" font-family="Georgia, serif" font-size="11" fill="#888">Slack</text>
+  <text x="40" y="243" font-family="Georgia, serif" font-size="11" fill="#888">Calendar</text>
+  <text x="40" y="265" font-family="Georgia, serif" font-size="11" fill="#888">Drive</text>
+  <text x="40" y="287" font-family="Georgia, serif" font-size="11" fill="#888">GitHub</text>
+  <text x="40" y="309" font-family="Georgia, serif" font-size="11" fill="#888">Notion</text>
+  <text x="40" y="331" font-family="Georgia, serif" font-size="11" fill="#888">Ramp</text>
+  <text x="40" y="353" font-family="Georgia, serif" font-size="11" fill="#888">News</text>
+
+  <!-- Main content -->
+  <text x="204" y="68" font-family="Georgia, serif" font-size="22" fill="#111">Email</text>
+
+  <!-- AI ranking badge -->
+  <rect x="270" y="52" width="100" height="20" rx="10" fill="#a00000" opacity="0.08"/>
+  <text x="283" y="66" font-family="Georgia, serif" font-size="10" fill="#a00000">AI-ranked</text>
+  <circle cx="366" cy="62" r="2" fill="#a00000" opacity="0.5"/>
+
+  <!-- Search bar -->
+  <rect x="204" y="82" width="568" height="32" rx="4" fill="#f8f5eb" stroke="#e0ddd1" stroke-width="1"/>
+  <text x="220" y="102" font-family="Georgia, serif" font-size="12" fill="#bbb" font-style="italic">Search emails...</text>
+
+  <!-- Email list -->
+  <!-- Email 1 - High priority -->
+  <rect x="204" y="126" width="568" height="60" rx="4" fill="#fffff8" stroke="#e0ddd1" stroke-width="0.5"/>
+  <rect x="204" y="126" width="3" height="60" rx="1.5" fill="#a00000"/>
+  <rect x="216" y="134" width="36" height="16" rx="3" fill="#a00000" opacity="0.12"/>
+  <text x="222" y="146" font-family="Georgia, serif" font-size="9" fill="#a00000">urgent</text>
+  <text x="260" y="148" font-family="Georgia, serif" font-size="12" fill="#111" font-weight="600">Q1 Budget Review — Action Required</text>
+  <text x="260" y="164" font-family="Georgia, serif" font-size="11" fill="#555">Please review the attached budget proposal before tomorrow's meeting. Key changes to the eng headcount...</text>
+  <text x="260" y="178" font-family="Georgia, serif" font-size="10" fill="#888">Finance Team &middot; 2 hours ago</text>
+  <circle cx="754" cy="156" r="4" fill="#a00000" opacity="0.6"/>
+
+  <!-- Email 2 -->
+  <rect x="204" y="194" width="568" height="60" rx="4" fill="#fffff8" stroke="#e0ddd1" stroke-width="0.5"/>
+  <rect x="204" y="194" width="3" height="60" rx="1.5" fill="#4a90d9"/>
+  <text x="220" y="216" font-family="Georgia, serif" font-size="12" fill="#111" font-weight="600">Re: API Migration Timeline</text>
+  <text x="220" y="232" font-family="Georgia, serif" font-size="11" fill="#555">Updated the migration doc with the new timeline. We should be able to cut over by end of sprint 14...</text>
+  <text x="220" y="246" font-family="Georgia, serif" font-size="10" fill="#888">Alice Johnson &middot; 3 hours ago</text>
+
+  <!-- Email 3 -->
+  <rect x="204" y="262" width="568" height="60" rx="4" fill="#fffff8" stroke="#e0ddd1" stroke-width="0.5"/>
+  <rect x="204" y="262" width="3" height="60" rx="1.5" fill="#e8a735"/>
+  <text x="220" y="284" font-family="Georgia, serif" font-size="12" fill="#111">Design Review Feedback</text>
+  <text x="220" y="300" font-family="Georgia, serif" font-size="11" fill="#555">Great progress on the new onboarding flow. A few suggestions on the second screen layout...</text>
+  <text x="220" y="314" font-family="Georgia, serif" font-size="10" fill="#888">Carol Lee &middot; 5 hours ago</text>
+
+  <!-- Email 4 -->
+  <rect x="204" y="330" width="568" height="60" rx="4" fill="#fffff8" stroke="#e0ddd1" stroke-width="0.5"/>
+  <rect x="204" y="330" width="3" height="60" rx="1.5" fill="#28a060"/>
+  <text x="220" y="352" font-family="Georgia, serif" font-size="12" fill="#111">Weekly Metrics Report</text>
+  <text x="220" y="368" font-family="Georgia, serif" font-size="11" fill="#555">This week's engagement numbers are attached. Notable increase in retention across the new cohort...</text>
+  <text x="220" y="382" font-family="Georgia, serif" font-size="10" fill="#888">Data Team &middot; 8 hours ago</text>
+
+  <!-- Email 5 (partially visible) -->
+  <rect x="204" y="398" width="568" height="60" rx="4" fill="#fffff8" stroke="#e0ddd1" stroke-width="0.5"/>
+  <rect x="204" y="398" width="3" height="60" rx="1.5" fill="#888"/>
+  <text x="220" y="420" font-family="Georgia, serif" font-size="12" fill="#555">Team Offsite Planning</text>
+  <text x="220" y="436" font-family="Georgia, serif" font-size="11" fill="#888">Quick poll on preferred dates for the Q2 offsite. Please vote by Friday...</text>
+  <text x="220" y="450" font-family="Georgia, serif" font-size="10" fill="#bbb">Bob Kim &middot; Yesterday</text>
+
+  <!-- Scroll indicator -->
+  <rect x="770" y="130" width="3" height="80" rx="1.5" fill="#e0ddd1"/>
+</svg>
