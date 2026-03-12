@@ -518,6 +518,11 @@ def _do_rerank_email(days: int = 7) -> bool:
 
     items.sort(key=lambda x: x["priority_score"], reverse=True)
     items = items[:50]
+
+    if not items:
+        logger.warning("Email rerank produced 0 items — not caching empty result")
+        return False
+
     result = {"items": items}
 
     with get_write_db() as db:

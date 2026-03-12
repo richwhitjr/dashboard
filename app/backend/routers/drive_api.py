@@ -366,6 +366,11 @@ def _do_rerank_drive(days: int = 30) -> bool:
 
     items.sort(key=lambda x: x["priority_score"], reverse=True)
     items = items[:50]
+
+    if not items:
+        logger.warning("Drive rerank produced 0 items — not caching empty result")
+        return False
+
     result = {"items": items}
 
     with get_write_db() as db:

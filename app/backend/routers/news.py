@@ -180,6 +180,11 @@ def _do_rerank_news(days: int = 14) -> bool:
         )
 
     items.sort(key=lambda x: x["priority_score"], reverse=True)
+
+    if not items:
+        logger.warning("News rerank produced 0 items — not caching empty result")
+        return False
+
     result = {"items": items}
 
     with get_write_db() as db:
