@@ -190,7 +190,7 @@ TOOLS = [
             "Use this as a FALLBACK when the GraphQL API or REST tools don't cover what you need. "
             "Key tables: employees (name, title, reports_to, is_coworker, group, company), "
             "notes (text, priority, status, employee_id, due_date), "
-            "issues (title, description, priority, size, status, tags, due_date), "
+            "issues (title, description, priority, tshirt_size, status, due_date), "
             "calendar_events (summary, start_time, end_time, attendees_json), "
             "emails (subject, snippet, from_name, from_email, date, is_unread), "
             "slack_messages (channel_name, user_name, text, ts, is_mention), "

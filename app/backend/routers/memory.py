@@ -57,10 +57,9 @@ def _gather_memory_context(db) -> dict:
     open_issues = [
         dict(r)
         for r in db.execute(
-            "SELECT title, description, priority, size, tags, due_date "
+            "SELECT title, description, priority, tshirt_size, due_date "
             "FROM issues WHERE status != 'done' "
-            "ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 "
-            "WHEN 'medium' THEN 2 ELSE 3 END, created_at DESC LIMIT 15"
+            "ORDER BY priority DESC, created_at DESC LIMIT 15"
         ).fetchall()
     ]
 
