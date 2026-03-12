@@ -56,8 +56,12 @@ echo "--- Creating DMG ---"
 # Remove any previous DMG with the same name
 rm -f "dist/${DMG_NAME}.dmg"
 
+DMG_CREATED=false
+
 if command -v create-dmg &> /dev/null; then
-    # create-dmg exits with code 2 on non-fatal warnings (e.g., no background image)
+    # create-dmg uses AppleScript for Finder styling, which may fail without
+    # Accessibility permissions. Try it, but fall back to hdiutil if the DMG
+    # is not produced.
     create-dmg \
         --volname "Personal Dashboard" \
         --volicon "Dashboard.app/Contents/Resources/AppIcon.icns" \
@@ -68,15 +72,25 @@ if command -v create-dmg &> /dev/null; then
         --hide-extension "${APP_NAME}.app" \
         --app-drop-link 425 190 \
         "dist/${DMG_NAME}.dmg" \
-        "dist/${APP_NAME}.app" || true
-else
-    # Fallback: create a simple DMG with hdiutil
-    echo "create-dmg not found, using hdiutil fallback"
+        "dist/${APP_NAME}.app" 2>&1 || true
+
+    [ -f "dist/${DMG_NAME}.dmg" ] && DMG_CREATED=true
+fi
+
+if [ "$DMG_CREATED" = false ]; then
+    echo "Falling back to hdiutil..."
+    # Stage directory with app + Applications symlink for drag-to-install
+    STAGE_DIR=$(mktemp -d)
+    cp -R "dist/${APP_NAME}.app" "$STAGE_DIR/"
+    ln -s /Applications "$STAGE_DIR/Applications"
+
     hdiutil create \
         -volname "Personal Dashboard" \
-        -srcfolder "dist/${APP_NAME}.app" \
+        -srcfolder "$STAGE_DIR" \
         -ov -format UDZO \
         "dist/${DMG_NAME}.dmg"
+
+    rm -rf "$STAGE_DIR"
 fi
 
 # 6. Clean up build venv
