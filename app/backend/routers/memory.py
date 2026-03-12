@@ -128,7 +128,7 @@ def _gather_memory_context(db) -> dict:
     recently_completed_notes = [
         dict(r)
         for r in db.execute(
-            "SELECT text FROM notes WHERE status = 'done' AND updated_at >= datetime('now', '-1 day') LIMIT 10"
+            "SELECT text FROM notes WHERE status = 'done' AND completed_at >= datetime('now', '-1 day') LIMIT 10"
         ).fetchall()
     ]
 
