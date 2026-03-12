@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" fill="none">
+  <!-- Window chrome -->
+  <rect width="800" height="500" rx="10" fill="#fffff8" stroke="#e0ddd1" stroke-width="1.5"/>
+  <rect width="800" height="32" rx="10" fill="#f8f5eb"/>
+  <rect y="24" width="800" height="8" fill="#f8f5eb"/>
+  <circle cx="20" cy="16" r="5" fill="#ff5f57"/>
+  <circle cx="38" cy="16" r="5" fill="#febc2e"/>
+  <circle cx="56" cy="16" r="5" fill="#28c840"/>
+
+  <!-- Sidebar -->
+  <rect x="0" y="32" width="180" height="468" fill="#f8f5eb"/>
+  <line x1="180" y1="32" x2="180" y2="500" stroke="#e0ddd1" stroke-width="1"/>
+
+  <!-- Sidebar nav items -->
+  <text x="40" y="67" font-family="Georgia, serif" font-size="12" fill="#555">Today</text>
+  <rect x="12" y="78" width="156" height="28" rx="4" fill="#a00000" opacity="0.12"/>
+  <text x="40" y="97" font-family="Georgia, serif" font-size="12" fill="#a00000" font-weight="600">People</text>
+  <text x="40" y="123" font-family="Georgia, serif" font-size="12" fill="#555">Notes</text>
+  <text x="40" y="147" font-family="Georgia, serif" font-size="12" fill="#555">Issues</text>
+  <text x="40" y="171" font-family="Georgia, serif" font-size="12" fill="#555">Writing</text>
+  <text x="40" y="203" font-family="Georgia, serif" font-size="11" fill="#888">Email</text>
+  <text x="40" y="225" font-family="Georgia, serif" font-size="11" fill="#888">Slack</text>
+  <text x="40" y="247" font-family="Georgia, serif" font-size="11" fill="#888">Calendar</text>
+  <text x="40" y="269" font-family="Georgia, serif" font-size="11" fill="#888">Drive</text>
+  <text x="40" y="291" font-family="Georgia, serif" font-size="11" fill="#888">GitHub</text>
+
+  <!-- Main content -->
+  <text x="204" y="68" font-family="Georgia, serif" font-size="22" fill="#111">People</text>
+
+  <!-- View toggle -->
+  <rect x="660" y="48" width="56" height="24" rx="4" fill="#f8f5eb" stroke="#e0ddd1" stroke-width="1"/>
+  <text x="671" y="64" font-family="Georgia, serif" font-size="10" fill="#a00000">Table</text>
+  <rect x="716" y="48" width="56" height="24" rx="4" fill="none" stroke="#e0ddd1" stroke-width="1"/>
+  <text x="731" y="64" font-family="Georgia, serif" font-size="10" fill="#888">Tree</text>
+
+  <!-- Search bar -->
+  <rect x="204" y="82" width="568" height="32" rx="4" fill="#f8f5eb" stroke="#e0ddd1" stroke-width="1"/>
+  <text x="220" y="102" font-family="Georgia, serif" font-size="12" fill="#bbb" font-style="italic">Search people...</text>
+
+  <!-- Table header -->
+  <rect x="204" y="126" width="568" height="28" rx="0" fill="#f8f5eb"/>
+  <line x1="204" y1="154" x2="772" y2="154" stroke="#e0ddd1" stroke-width="1"/>
+  <text x="220" y="144" font-family="Georgia, serif" font-size="11" fill="#888" font-weight="600">Name</text>
+  <text x="380" y="144" font-family="Georgia, serif" font-size="11" fill="#888" font-weight="600">Title</text>
+  <text x="580" y="144" font-family="Georgia, serif" font-size="11" fill="#888" font-weight="600">Group</text>
+  <text x="700" y="144" font-family="Georgia, serif" font-size="11" fill="#888" font-weight="600">Last 1:1</text>
+
+  <!-- Person rows -->
+  <!-- Row 1 -->
+  <circle cx="228" cy="176" r="12" fill="#e8d5c4"/>
+  <text x="228" y="180" font-family="Georgia, serif" font-size="10" fill="#888" text-anchor="middle">AJ</text>
+  <text x="248" y="180" font-family="Georgia, serif" font-size="12" fill="#111">Alice Johnson</text>
+  <text x="380" y="180" font-family="Georgia, serif" font-size="11" fill="#555">Sr. Engineer</text>
+  <rect x="580" y="168" width="68" height="20" rx="10" fill="#a00000" opacity="0.08"/>
+  <text x="593" y="182" font-family="Georgia, serif" font-size="10" fill="#a00000">Engineering</text>
+  <text x="700" y="180" font-family="Georgia, serif" font-size="11" fill="#888">2 days ago</text>
+  <line x1="204" y1="196" x2="772" y2="196" stroke="#e0ddd1" stroke-width="0.5"/>
+
+  <!-- Row 2 -->
+  <circle cx="228" cy="216" r="12" fill="#c4d5e8"/>
+  <text x="228" y="220" font-family="Georgia, serif" font-size="10" fill="#888" text-anchor="middle">BK</text>
+  <text x="248" y="220" font-family="Georgia, serif" font-size="12" fill="#111">Bob Kim</text>
+  <text x="380" y="220" font-family="Georgia, serif" font-size="11" fill="#555">Product Manager</text>
+  <rect x="580" y="208" width="52" height="20" rx="10" fill="#4a90d9" opacity="0.12"/>
+  <text x="590" y="222" font-family="Georgia, serif" font-size="10" fill="#4a90d9">Product</text>
+  <text x="700" y="220" font-family="Georgia, serif" font-size="11" fill="#888">Today</text>
+  <line x1="204" y1="236" x2="772" y2="236" stroke="#e0ddd1" stroke-width="0.5"/>
+
+  <!-- Row 3 -->
+  <circle cx="228" cy="256" r="12" fill="#d5e8c4"/>
+  <text x="228" y="260" font-family="Georgia, serif" font-size="10" fill="#888" text-anchor="middle">CL</text>
+  <text x="248" y="260" font-family="Georgia, serif" font-size="12" fill="#111">Carol Lee</text>
+  <text x="380" y="260" font-family="Georgia, serif" font-size="11" fill="#555">Design Lead</text>
+  <rect x="580" y="248" width="52" height="20" rx="10" fill="#28a060" opacity="0.12"/>
+  <text x="592" y="262" font-family="Georgia, serif" font-size="10" fill="#28a060">Design</text>
+  <text x="700" y="260" font-family="Georgia, serif" font-size="11" fill="#888">1 week</text>
+  <line x1="204" y1="276" x2="772" y2="276" stroke="#e0ddd1" stroke-width="0.5"/>
+
+  <!-- Row 4 -->
+  <circle cx="228" cy="296" r="12" fill="#e8c4d5"/>
+  <text x="228" y="300" font-family="Georgia, serif" font-size="10" fill="#888" text-anchor="middle">DM</text>
+  <text x="248" y="300" font-family="Georgia, serif" font-size="12" fill="#111">David Martinez</text>
+  <text x="380" y="300" font-family="Georgia, serif" font-size="11" fill="#555">Staff Engineer</text>
+  <rect x="580" y="288" width="68" height="20" rx="10" fill="#a00000" opacity="0.08"/>
+  <text x="593" y="302" font-family="Georgia, serif" font-size="10" fill="#a00000">Engineering</text>
+  <text x="700" y="300" font-family="Georgia, serif" font-size="11" fill="#888">3 days ago</text>
+  <line x1="204" y1="316" x2="772" y2="316" stroke="#e0ddd1" stroke-width="0.5"/>
+
+  <!-- Row 5 -->
+  <circle cx="228" cy="336" r="12" fill="#d5c4e8"/>
+  <text x="228" y="340" font-family="Georgia, serif" font-size="10" fill="#888" text-anchor="middle">EP</text>
+  <text x="248" y="340" font-family="Georgia, serif" font-size="12" fill="#111">Emma Park</text>
+  <text x="380" y="340" font-family="Georgia, serif" font-size="11" fill="#555">VP Operations</text>
+  <rect x="580" y="328" width="72" height="20" rx="10" fill="#e8a735" opacity="0.15"/>
+  <text x="593" y="342" font-family="Georgia, serif" font-size="10" fill="#b87a00">Operations</text>
+  <text x="700" y="340" font-family="Georgia, serif" font-size="11" fill="#888">5 days ago</text>
+  <line x1="204" y1="356" x2="772" y2="356" stroke="#e0ddd1" stroke-width="0.5"/>
+
+  <!-- Row 6 -->
+  <circle cx="228" cy="376" r="12" fill="#c4e8d5"/>
+  <text x="228" y="380" font-family="Georgia, serif" font-size="10" fill="#888" text-anchor="middle">FW</text>
+  <text x="248" y="380" font-family="Georgia, serif" font-size="12" fill="#111">Frank Wu</text>
+  <text x="380" y="380" font-family="Georgia, serif" font-size="11" fill="#555">Data Scientist</text>
+  <rect x="580" y="368" width="68" height="20" rx="10" fill="#a00000" opacity="0.08"/>
+  <text x="593" y="382" font-family="Georgia, serif" font-size="10" fill="#a00000">Engineering</text>
+  <text x="700" y="380" font-family="Georgia, serif" font-size="11" fill="#888">Yesterday</text>
+  <line x1="204" y1="396" x2="772" y2="396" stroke="#e0ddd1" stroke-width="0.5"/>
+
+  <!-- Pagination hint -->
+  <text x="472" y="428" font-family="Georgia, serif" font-size="11" fill="#888" text-anchor="middle">Showing 6 of 24 people</text>
+</svg>

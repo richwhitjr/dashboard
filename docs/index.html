@@ -3,8 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Personal Dashboard — Your work, unified</title>
-  <meta name="description" content="A local-first macOS app that unifies your email, calendar, Slack, meetings, notes, and more into a single quiet interface.">
+  <title>Personal Dashboard — An AI assistant for your entire workday</title>
+  <meta name="description" content="A local-first macOS app that gives you an AI-powered personal assistant across email, calendar, Slack, meetings, notes, and 10+ services. Think, act, and stay ahead.">
+  <meta property="og:title" content="Personal Dashboard — An AI assistant for your entire workday">
+  <meta property="og:description" content="An open-source, local-first AI assistant that connects to your email, calendar, Slack, GitHub, and more. Not just a dashboard — an agent that works for you.">
+  <meta property="og:type" content="website">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
 </head>
@@ -14,7 +17,8 @@
   <section class="hero">
     <img src="icon.svg" alt="Personal Dashboard" class="hero-icon">
     <h1>Personal Dashboard</h1>
-    <p class="tagline">Your email, calendar, Slack, meetings, and more &mdash; unified in a quiet macOS app.</p>
+    <p class="tagline">An AI-powered personal assistant that connects to your email, calendar, Slack, and 10+ services &mdash; and actually does things for you.</p>
+    <p class="hero-subtitle">Not just a dashboard. An agent that reads your inbox, prepares your briefings, tracks your tasks, and takes action across every tool you use. Runs locally on your Mac.</p>
     <a href="https://github.com/rich-osmo/dashboard/releases/latest" class="download-btn">Download for Mac</a>
     <p class="download-note">macOS 12+ &middot; Apple Silicon (Intel via Rosetta) &middot; Free &amp; open source</p>
   </section>
@@ -23,89 +27,193 @@
   <section class="screenshots container">
     <div class="screenshot-grid">
       <div class="screenshot-card">
-        <div class="placeholder">Screenshot coming soon</div>
-        <h3>Morning Briefing</h3>
-        <p>Weather, inbox pulse, today's calendar, and AI-ranked priorities at a glance.</p>
+        <img src="screenshots/briefing.svg" alt="Morning Briefing view" class="screenshot-img">
+        <h3>AI-Powered Briefing</h3>
+        <p>Your agent reads every inbox, ranks priorities, and prepares your morning in seconds.</p>
       </div>
       <div class="screenshot-card">
-        <div class="placeholder">Screenshot coming soon</div>
-        <h3>People &amp; 1:1s</h3>
-        <p>Org chart, meeting history, notes, and context for everyone you work with.</p>
+        <img src="screenshots/people.svg" alt="People directory view" class="screenshot-img">
+        <h3>Full Context on Everyone</h3>
+        <p>Every email, meeting, Slack thread, PR, and note linked to each person automatically.</p>
       </div>
       <div class="screenshot-card">
-        <div class="placeholder">Screenshot coming soon</div>
-        <h3>Notes &amp; Issues</h3>
-        <p>Quick notes with @mentions, issue tracking, and AI-powered issue discovery.</p>
+        <img src="screenshots/inbox.svg" alt="Email inbox view" class="screenshot-img">
+        <h3>AI-Ranked Inbox</h3>
+        <p>Gemini scores every email by relevance so you focus on what matters.</p>
       </div>
     </div>
   </section>
 
   <!-- Features -->
   <section class="features container">
-    <h2>Everything in one place</h2>
+    <h2>An assistant that sees everything and can act everywhere</h2>
     <div class="feature-grid">
       <div class="feature-card">
+        <h3>Embedded AI Agent</h3>
+        <p>Claude Code runs inside the app with full access to your data, APIs, and database. Ask it to analyze, draft, summarize, or automate anything.</p>
+      </div>
+      <div class="feature-card">
+        <h3>WhatsApp Agent</h3>
+        <p>Message your assistant from anywhere. Check your calendar, search email, post to Slack, create tasks &mdash; all from a chat.</p>
+      </div>
+      <div class="feature-card">
         <h3>Morning Briefing</h3>
-        <p>Start your day with weather, inbox highlights, calendar overview, and AI-ranked priorities.</p>
+        <p>AI-generated daily briefing with weather, inbox highlights, calendar, and ranked priorities across every service.</p>
       </div>
       <div class="feature-card">
-        <h3>People &amp; Teams</h3>
-        <p>Org chart, 1:1 topic tracking, meeting history, and relationship context across all your tools.</p>
+        <h3>AI Issue Discovery</h3>
+        <p>Automatically scans email, Slack, meetings, and Notion to surface tasks you might have missed.</p>
       </div>
       <div class="feature-card">
-        <h3>Notes &amp; Issues</h3>
-        <p>Quick capture with @mention linking, priority levels, due dates, and AI-powered issue discovery.</p>
+        <h3>Act Across Services</h3>
+        <p>Send emails, post to Slack, create calendar events, update Notion, append to Google Docs &mdash; all from one place or through the agent.</p>
       </div>
       <div class="feature-card">
-        <h3>Unified Inbox</h3>
-        <p>Gmail, Slack, Notion, GitHub, and Google Drive &mdash; searchable from one interface.</p>
+        <h3>People &amp; Relationships</h3>
+        <p>Org chart, 1:1 topic tracking, meeting history, and full context from every connected service for each person.</p>
       </div>
       <div class="feature-card">
-        <h3>AI Priorities</h3>
-        <p>Gemini-powered priority ranking surfaces what matters most each morning.</p>
+        <h3>Notes, Issues &amp; Writing</h3>
+        <p>Quick notes with @mentions, issue tracking with priorities and tags, and a markdown editor for longform drafts.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Knowledge Graph</h3>
+        <p>GraphQL API links people to their emails, Slack messages, calendar events, PRs, Drive files, and transactions.</p>
+      </div>
+      <div class="feature-card">
+        <h3>AI-Ranked Everything</h3>
+        <p>Gemini ranks your emails, Slack messages, Notion pages, Drive files, news, and expenses by relevance to you.</p>
       </div>
       <div class="feature-card">
         <h3>Full-Text Search</h3>
-        <p>Search across emails, notes, meetings, issues, and people instantly.</p>
+        <p>Instant search across emails, notes, meetings, issues, and people. Plus live queries to Gmail, Slack, and Notion.</p>
       </div>
       <div class="feature-card">
-        <h3>Plugin Connectors</h3>
-        <p>Gmail, Calendar, Slack, Notion, GitHub, Ramp, Granola, Google Drive, and more.</p>
+        <h3>Plugin Architecture</h3>
+        <p>Each connector self-registers with its own sync logic, auth, and API. Easy to add new services.</p>
       </div>
       <div class="feature-card">
-        <h3>Keyboard-Driven</h3>
-        <p>Navigate everything with keyboard shortcuts. Built for speed.</p>
+        <h3>Keyboard-First</h3>
+        <p>Navigate everything with keyboard shortcuts. Built for speed, not clicking through tabs.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Integrations -->
+  <section class="integrations container">
+    <h2>Connects to everything you use</h2>
+    <div class="integration-grid">
+      <div class="integration-card">
+        <div class="integration-icon">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+        </div>
+        <h3>Gmail</h3>
+        <p>Inbox sync, search, send, draft, archive, and trash</p>
+      </div>
+      <div class="integration-card">
+        <div class="integration-icon">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        </div>
+        <h3>Google Calendar</h3>
+        <p>Events, RSVP, create, update, and delete</p>
+      </div>
+      <div class="integration-card">
+        <div class="integration-icon">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </div>
+        <h3>Slack</h3>
+        <p>DMs, mentions, channels, send, edit, react, and delete</p>
+      </div>
+      <div class="integration-card">
+        <div class="integration-icon">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        </div>
+        <h3>Notion</h3>
+        <p>Pages, search, create, edit properties, and append content</p>
+      </div>
+      <div class="integration-card">
+        <div class="integration-icon">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+        </div>
+        <h3>GitHub</h3>
+        <p>Pull requests, issues, and code review tracking</p>
+      </div>
+      <div class="integration-card">
+        <div class="integration-icon">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        </div>
+        <h3>Google Drive</h3>
+        <p>Files with Gemini AI relevance ranking, Docs, and Sheets</p>
+      </div>
+      <div class="integration-card">
+        <div class="integration-icon">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        </div>
+        <h3>Ramp</h3>
+        <p>Transactions, bills, vendors, and project budget tracking</p>
+      </div>
+      <div class="integration-card">
+        <div class="integration-icon">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </div>
+        <h3>Granola</h3>
+        <p>Meeting transcripts, summaries, and action items</p>
+      </div>
+      <div class="integration-card">
+        <div class="integration-icon">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        </div>
+        <h3>News</h3>
+        <p>Industry news from Slack links, email, and Google News RSS</p>
       </div>
     </div>
   </section>
 
   <!-- How it works -->
   <section class="how-it-works container">
-    <h2>Get started in three steps</h2>
+    <h2>Up and running in minutes</h2>
     <div class="steps">
       <div>
         <div class="step-number">1</div>
-        <h3>Download the app</h3>
-        <p>Download the DMG, drag to Applications, and launch.</p>
+        <h3>Install the app</h3>
+        <p>Download the DMG, drag to Applications, and launch. Everything runs locally.</p>
       </div>
       <div>
         <div class="step-number">2</div>
         <h3>Connect your services</h3>
-        <p>Link Gmail, Slack, Notion, and other tools in Settings. All data stays on your Mac.</p>
+        <p>Link Gmail, Slack, Notion, GitHub, and more. Your data syncs to a local SQLite database &mdash; nothing leaves your machine.</p>
       </div>
       <div>
         <div class="step-number">3</div>
-        <h3>Start your briefing</h3>
-        <p>Open the app each morning for a unified view of your day.</p>
+        <h3>Let the agent work</h3>
+        <p>Get AI-powered briefings, ask questions in the terminal or via WhatsApp, and let it handle the busywork.</p>
       </div>
+    </div>
+  </section>
+
+  <!-- Tech stack -->
+  <section class="tech-stack container">
+    <h2>Built with</h2>
+    <div class="tech-grid">
+      <span class="tech-badge">FastAPI</span>
+      <span class="tech-badge">React 19</span>
+      <span class="tech-badge">TypeScript</span>
+      <span class="tech-badge">SQLite</span>
+      <span class="tech-badge">Strawberry GraphQL</span>
+      <span class="tech-badge">pywebview</span>
+      <span class="tech-badge">Vite</span>
+      <span class="tech-badge">TanStack Query</span>
+      <span class="tech-badge">Tufte CSS</span>
+      <span class="tech-badge">xterm.js</span>
+      <span class="tech-badge">Gemini AI</span>
+      <span class="tech-badge">Alembic</span>
     </div>
   </section>
 
   <!-- Philosophy -->
   <section class="philosophy container">
-    <h2>Local-first. Private. Open source.</h2>
-    <p>Your data never leaves your Mac. No accounts, no cloud sync, no tracking. Everything is stored locally in SQLite.</p>
-    <p>Built with FastAPI, React, and pywebview. Styled with Tufte CSS.</p>
+    <h2>Local-first. Private. Yours.</h2>
+    <p>Your data never leaves your Mac. No accounts, no cloud sync, no tracking. The AI sees everything you connect &mdash; but only on your machine. Everything is stored in a local SQLite database you can query directly.</p>
     <div class="badge-row">
       <span class="badge">MIT License</span>
       <span class="badge">Local-only</span>
