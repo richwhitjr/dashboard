@@ -163,27 +163,29 @@ export function Sidebar() {
         <div className="sidebar-section-label">tools</div>
         <nav>
           <NavLink to="/people">People</NavLink>
-          <NavLink to="/claude" end>Claude</NavLink>
-          {onClaudePage && personas?.filter(p => !p.is_default).map(p => (
-            <NavLink
-              key={p.id}
-              to={`/claude?persona=${p.id}`}
-              className="sidebar-sub-link sidebar-persona-link"
-            >
-              {p.avatar_filename ? (
-                <img
-                  src={`/api/personas/${p.id}/avatar`}
-                  alt=""
-                  className="persona-avatar-sidebar"
-                />
-              ) : (
-                <span className="persona-avatar-placeholder-sidebar">
-                  {p.name.charAt(0).toUpperCase()}
-                </span>
-              )}
-              {p.name}
-            </NavLink>
-          ))}
+          {active.has('claude_code') && <>
+            <NavLink to="/claude" end>Claude</NavLink>
+            {onClaudePage && personas?.filter(p => !p.is_default).map(p => (
+              <NavLink
+                key={p.id}
+                to={`/claude?persona=${p.id}`}
+                className="sidebar-sub-link sidebar-persona-link"
+              >
+                {p.avatar_filename ? (
+                  <img
+                    src={`/api/personas/${p.id}/avatar`}
+                    alt=""
+                    className="persona-avatar-sidebar"
+                  />
+                ) : (
+                  <span className="persona-avatar-placeholder-sidebar">
+                    {p.name.charAt(0).toUpperCase()}
+                  </span>
+                )}
+                {p.name}
+              </NavLink>
+            ))}
+          </>}
         </nav>
 
         {groupList.map((group) => {

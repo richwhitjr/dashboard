@@ -236,6 +236,28 @@ register(
     )
 )
 
+# --- Claude Code ---
+register(
+    ConnectorInfo(
+        id="claude_code",
+        name="Claude Code",
+        description="Embedded Claude Code terminal for AI-assisted coding",
+        category="cli",
+        secret_keys=[],
+        help_steps=[
+            "Install Claude Code: npm install -g @anthropic-ai/claude-code",
+            "Or via Homebrew: brew install claude-code",
+            "Run 'claude' once in your terminal to complete setup",
+            "Enable this connector to show the Claude terminal in the sidebar",
+        ],
+        help_url="https://docs.anthropic.com/en/docs/claude-code/overview",
+        sync_sources=[],
+        default_enabled=False,
+        sync_fn=None,
+        check_fn="routers.auth._check_claude_code",
+    )
+)
+
 # --- WhatsApp ---
 register(
     ConnectorInfo(

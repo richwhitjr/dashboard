@@ -107,6 +107,21 @@ def _check_notion() -> dict:
     return result
 
 
+def _check_claude_code() -> dict:
+    """Check if Claude Code CLI is installed."""
+    import shutil
+
+    result = {"configured": False, "connected": False, "error": None, "detail": None}
+    path = shutil.which("claude")
+    if path:
+        result["configured"] = True
+        result["connected"] = True
+        result["detail"] = f"Found at {path}"
+    else:
+        result["error"] = "Claude Code CLI not found — install with: npm install -g @anthropic-ai/claude-code"
+    return result
+
+
 def _check_github() -> dict:
     """Check GitHub auth via gh CLI token."""
     import subprocess
@@ -262,6 +277,7 @@ def auth_status():
         "granola": _check_granola(),
         "github": _check_github(),
         "ramp": _check_ramp(),
+        "claude_code": _check_claude_code(),
     }
 
     # Attach sync state to each service
@@ -355,6 +371,7 @@ def test_connection(service: str):
         "granola": _check_granola,
         "github": _check_github,
         "ramp": _check_ramp,
+        "claude_code": _check_claude_code,
     }
     # Lazy import to avoid circular deps
     from routers.whatsapp import _check_whatsapp

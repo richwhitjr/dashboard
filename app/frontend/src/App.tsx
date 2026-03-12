@@ -8,7 +8,7 @@ import { KeyboardHelp } from './components/KeyboardHelp';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { UndoToast, getUndoTrigger } from './components/UndoToast';
 import { IssueDiscoveryOverlay, type DiscoveryPhase } from './components/IssueDiscoveryOverlay';
-import { useSync, useSetupStatus } from './api/hooks';
+import { useSync, useSetupStatus, useConnectors, useAuthStatus } from './api/hooks';
 import { BriefingPage } from './pages/BriefingPage';
 import './styles/tufte.css';
 
@@ -64,6 +64,16 @@ function AppContent() {
   const [discoveryPhase, setDiscoveryPhase] = useState<DiscoveryPhase>('hidden');
   const isClaudePage = location.pathname === '/claude';
   const isSetupPage = location.pathname === '/setup';
+
+  const { data: connectors } = useConnectors();
+  const { data: authData } = useAuthStatus();
+  const claudeEnabled = (() => {
+    const c = connectors?.find(c => c.id === 'claude_code');
+    if (!c?.enabled) return false;
+    const status = authData?.['claude_code' as keyof typeof authData];
+    if (!status) return true; // optimistic while loading
+    return (status as { connected?: boolean }).connected;
+  })();
 
   useKeyboardShortcuts({
     navigate,
@@ -128,9 +138,11 @@ function AppContent() {
 
               <Route path="/claude" element={null} />
             </Routes>
-            <div style={{ display: isClaudePage ? 'contents' : 'none' }}>
-              <ClaudePage visible={isClaudePage} overlayOpen={searchOpen || helpOpen} />
-            </div>
+            {claudeEnabled && (
+              <div style={{ display: isClaudePage ? 'contents' : 'none' }}>
+                <ClaudePage visible={isClaudePage} overlayOpen={searchOpen || helpOpen} />
+              </div>
+            )}
           </Suspense>
         </main>
       </div>

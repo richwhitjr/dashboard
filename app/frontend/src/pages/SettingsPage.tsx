@@ -806,7 +806,7 @@ const CONNECTOR_GROUPS: { label: string; description: string; ids: string[] }[] 
   { label: 'Google Services', description: 'Gmail, Calendar, and Drive. Authenticate once to enable all Google services.', ids: ['google', 'google_drive'] },
   { label: 'Communication', description: 'Search and sync messages from your team tools.', ids: ['slack', 'notion'] },
   { label: 'Meeting Transcripts', description: 'Import meeting notes and transcripts.', ids: ['granola'] },
-  { label: 'Development', description: 'Pull requests and issues from GitHub.', ids: ['github'] },
+  { label: 'Development', description: 'Pull requests, issues, and AI-assisted coding.', ids: ['github', 'claude_code'] },
   { label: 'Finance', description: 'Transactions, bills, and vendor data from Ramp.', ids: ['ramp'] },
   { label: 'Experimental', description: 'Features still in development.', ids: ['whatsapp', 'news'] },
 ];
