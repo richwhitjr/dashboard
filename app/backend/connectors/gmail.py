@@ -1,6 +1,7 @@
 """Google Gmail API connector."""
 
 import json
+from datetime import datetime, timezone
 
 from googleapiclient.discovery import build
 
@@ -46,6 +47,13 @@ def sync_gmail_messages() -> int:
         labels = msg.get("labelIds", [])
         is_unread = "UNREAD" in labels
 
+        # Use internalDate (epoch ms) for sortable ISO date, fall back to header
+        internal_date = msg.get("internalDate")
+        if internal_date:
+            date_str = datetime.fromtimestamp(int(internal_date) / 1000, tz=timezone.utc).isoformat()
+        else:
+            date_str = headers.get("Date", "")
+
         rows.append(
             (
                 msg["id"],
@@ -55,7 +63,7 @@ def sync_gmail_messages() -> int:
                 from_name,
                 from_email,
                 headers.get("To", ""),
-                headers.get("Date", ""),
+                date_str,
                 json.dumps(labels),
                 int(is_unread),
                 msg.get("snippet", "")[:500],
