@@ -22,17 +22,23 @@ def setup_logging():
     root.setLevel(logging.INFO)
     root.addHandler(handler)
 
-    # Also capture stdout/stderr so print() and tracebacks go to the log
-    sys.stdout = open(LOG_FILE, "a")
-    sys.stderr = open(LOG_FILE, "a")
+    # Also capture stdout/stderr so print() and tracebacks go to the log.
+    # Use line-buffering (buffering=1) so output is flushed on every newline —
+    # without this, crash output can be lost in an unflushed buffer.
+    sys.stdout = open(LOG_FILE, "a", buffering=1)
+    sys.stderr = open(LOG_FILE, "a", buffering=1)
 
 
 def start_server():
     log.info("Starting uvicorn server on 127.0.0.1:8000")
     try:
         uvicorn.run("main:app", host="127.0.0.1", port=8000, log_level="info")
-    except Exception:
-        log.exception("Uvicorn server crashed")
+    except BaseException as e:
+        # Catch BaseException to also capture SystemExit (raised by sys.exit())
+        log.error("Uvicorn server crashed: %s: %s", type(e).__name__, e)
+        import traceback
+        log.error("".join(traceback.format_exc()))
+        raise
 
 
 if __name__ == "__main__":
@@ -87,9 +93,13 @@ if __name__ == "__main__":
     def _server_wrapper():
         try:
             start_server()
-        except Exception:
-            log.exception("Server thread died")
+        except BaseException as e:
+            log.error("Server thread died: %s: %s", type(e).__name__, e)
             server_error.set()
+        finally:
+            # Ensure buffers are flushed even if thread dies
+            sys.stdout.flush()
+            sys.stderr.flush()
 
     server = threading.Thread(target=_server_wrapper, daemon=True)
     server.start()

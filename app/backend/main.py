@@ -199,12 +199,18 @@ def startup():
 
     def _step(name, fn):
         log.info("[startup] %s ...", name)
+        sys.stdout.flush()
+        sys.stderr.flush()
         t0 = time.time()
         try:
             fn()
             log.info("[startup] %s OK (%.2fs)", name, time.time() - t0)
-        except Exception:
-            log.exception("[startup] %s FAILED after %.2fs", name, time.time() - t0)
+        except BaseException as e:
+            log.error("[startup] %s FAILED after %.2fs: %s: %s", name, time.time() - t0, type(e).__name__, e)
+            import traceback
+            log.error("".join(traceback.format_exc()))
+            sys.stdout.flush()
+            sys.stderr.flush()
             raise
 
     _step("init_db (migrations)", init_db)
