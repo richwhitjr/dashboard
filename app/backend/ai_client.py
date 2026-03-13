@@ -344,30 +344,40 @@ async def _chat_gemini(
     temperature: float,
 ) -> ChatResponse:
     from google import genai
+    from google.genai import types as genai_types
 
     client = genai.Client(api_key=api_key)
 
-    # Convert messages to Gemini format — simple concatenation for now
-    # Gemini's chat API is different; use generate_content with full conversation
+    # Convert messages to Gemini format using native Part types
     parts = []
     for msg in messages:
         content = msg["content"]
         if isinstance(content, str):
             role = "user" if msg["role"] == "user" else "model"
-            parts.append({"role": role, "parts": [{"text": content}]})
+            parts.append({"role": role, "parts": [genai_types.Part.from_text(text=content)]})
         elif isinstance(content, list):
-            # Tool results or tool calls — serialize as text for Gemini
-            texts = []
+            role = "user" if msg["role"] == "user" else "model"
+            gemini_parts = []
             for item in content:
                 if item.get("type") == "tool_result":
-                    texts.append(f"Tool result for {item.get('tool_use_id', '')}: {item.get('content', '')}")
+                    # Extract tool name from the ID (format: "gemini_{name}")
+                    tool_use_id = item.get("tool_use_id", "")
+                    tool_name = tool_use_id.removeprefix("gemini_") if tool_use_id.startswith("gemini_") else tool_use_id
+                    # Parse content as JSON if possible, otherwise wrap as text
+                    raw = item.get("content", "")
+                    try:
+                        response_data = json.loads(raw) if isinstance(raw, str) else raw
+                    except (json.JSONDecodeError, TypeError):
+                        response_data = {"result": raw}
+                    if not isinstance(response_data, dict):
+                        response_data = {"result": response_data}
+                    gemini_parts.append(genai_types.Part.from_function_response(name=tool_name, response=response_data))
                 elif item.get("type") == "tool_use":
-                    texts.append(f"Calling tool {item['name']} with {json.dumps(item['input'])}")
-                elif item.get("type") == "text":
-                    texts.append(item["text"])
-            role = "user" if msg["role"] == "user" else "model"
-            if texts:
-                parts.append({"role": role, "parts": [{"text": "\n".join(texts)}]})
+                    gemini_parts.append(genai_types.Part.from_function_call(name=item["name"], args=item.get("input", {})))
+                elif item.get("type") == "text" and item.get("text"):
+                    gemini_parts.append(genai_types.Part.from_text(text=item["text"]))
+            if gemini_parts:
+                parts.append({"role": role, "parts": gemini_parts})
 
     # For Gemini, we use function declarations if tools provided
     config: dict = {
