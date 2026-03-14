@@ -192,6 +192,189 @@ TOOLS = [
             "required": ["sql"],
         },
     },
+    # --- Write tools ---
+    {
+        "name": "create_note",
+        "description": (
+            "Create a note, thought, agenda item, or follow-up. "
+            "Start text with [t] for a thought, [1] for a 1:1 agenda item. "
+            "Use @Name in text to link to a person. "
+            "To add a follow-up for someone, include their person_id."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "Note text. Prefix [t] for thought, [1] for 1:1 agenda item. Use @Name to mention people.",
+                },
+                "person_id": {
+                    "type": "string",
+                    "description": "Person ID to link this note to (for follow-ups, agenda items)",
+                },
+                "priority": {
+                    "type": "integer",
+                    "description": "Priority 0 (highest) to 3 (lowest), default 0",
+                    "minimum": 0,
+                    "maximum": 3,
+                },
+                "is_one_on_one": {
+                    "type": "boolean",
+                    "description": "Mark as 1:1 agenda item (alternative to [1] prefix)",
+                },
+                "due_date": {
+                    "type": "string",
+                    "description": "Due date in YYYY-MM-DD format",
+                },
+            },
+            "required": ["text"],
+        },
+    },
+    {
+        "name": "update_note",
+        "description": (
+            "Update or close a note/thought/agenda item. "
+            "Set status to 'done' to close it. "
+            "Use get_notes first to find the note ID."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "note_id": {"type": "integer", "description": "ID of the note to update"},
+                "status": {
+                    "type": "string",
+                    "enum": ["open", "done"],
+                    "description": "Set to 'done' to close",
+                },
+                "text": {"type": "string", "description": "Updated note text"},
+                "priority": {
+                    "type": "integer",
+                    "description": "Updated priority 0-3",
+                    "minimum": 0,
+                    "maximum": 3,
+                },
+            },
+            "required": ["note_id"],
+        },
+    },
+    {
+        "name": "create_issue",
+        "description": (
+            "Create a tracked issue/task. Use @Name in the title to link people. "
+            "Issues have priority (0=critical to 3=low) and t-shirt size (s/m/l/xl)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Issue title. Use @Name to mention people.",
+                },
+                "description": {"type": "string", "description": "Detailed description"},
+                "priority": {
+                    "type": "integer",
+                    "description": "0=critical, 1=high, 2=medium (default), 3=low",
+                    "minimum": 0,
+                    "maximum": 3,
+                },
+                "size": {
+                    "type": "string",
+                    "enum": ["s", "m", "l", "xl"],
+                    "description": "T-shirt size estimate (default: m)",
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tags for categorization",
+                },
+                "due_date": {"type": "string", "description": "Due date in YYYY-MM-DD format"},
+                "person_id": {"type": "string", "description": "Person ID to assign"},
+            },
+            "required": ["title"],
+        },
+    },
+    {
+        "name": "update_issue",
+        "description": (
+            "Update or close an issue. Set status to 'done' to close it. "
+            "Use get_issues first to find the issue ID."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "issue_id": {"type": "integer", "description": "ID of the issue to update"},
+                "status": {
+                    "type": "string",
+                    "enum": ["open", "in_progress", "done"],
+                    "description": "Issue status",
+                },
+                "title": {"type": "string", "description": "Updated title"},
+                "description": {"type": "string", "description": "Updated description"},
+                "priority": {
+                    "type": "integer",
+                    "description": "Updated priority 0-3",
+                    "minimum": 0,
+                    "maximum": 3,
+                },
+                "size": {
+                    "type": "string",
+                    "enum": ["s", "m", "l", "xl"],
+                    "description": "Updated size",
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Replace tags",
+                },
+            },
+            "required": ["issue_id"],
+        },
+    },
+    {
+        "name": "create_longform",
+        "description": (
+            "Create a longform writing piece (draft blog post, memo, document). "
+            "Returns the post ID for later editing in the dashboard."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Post title"},
+                "body": {"type": "string", "description": "Post body in markdown"},
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tags for categorization",
+                },
+                "person_id": {"type": "string", "description": "Person ID to link this post to"},
+            },
+            "required": ["title", "body"],
+        },
+    },
+    {
+        "name": "add_one_on_one_note",
+        "description": (
+            "Add a 1:1 meeting note for a specific person. "
+            "This creates a structured meeting note with a date. "
+            "Use get_people or get_person to find the person_id first."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "person_id": {
+                    "type": "string",
+                    "description": "Person ID (slug like 'alice-smith')",
+                },
+                "content": {"type": "string", "description": "Meeting notes content"},
+                "meeting_date": {
+                    "type": "string",
+                    "description": "Meeting date YYYY-MM-DD (defaults to today)",
+                },
+                "title": {"type": "string", "description": "Optional title for the meeting notes"},
+            },
+            "required": ["person_id", "content"],
+        },
+    },
 ]
 
 
@@ -225,8 +408,6 @@ async def _execute_tool(name: str, tool_input: dict) -> str:
                 if "status" in tool_input:
                     params["status"] = tool_input["status"]
                 r = await client.get("/api/notes", params=params)
-            elif name == "create_note":
-                return json.dumps({"error": "Note creation is disabled via WhatsApp for security."})
             elif name == "get_issues":
                 params = {}
                 if "status" in tool_input:
@@ -272,6 +453,70 @@ async def _execute_tool(name: str, tool_input: dict) -> str:
                     return json.dumps(results[:200], default=str)  # cap at 200 rows
                 except Exception:
                     return json.dumps({"error": "SQL query failed — check syntax"})
+            # --- Write tools ---
+            elif name == "create_note":
+                body = {"text": tool_input["text"]}
+                if "person_id" in tool_input:
+                    body["person_ids"] = [tool_input["person_id"]]
+                if "priority" in tool_input:
+                    body["priority"] = tool_input["priority"]
+                if "is_one_on_one" in tool_input:
+                    body["is_one_on_one"] = tool_input["is_one_on_one"]
+                if "due_date" in tool_input:
+                    body["due_date"] = tool_input["due_date"]
+                r = await client.post("/api/notes", json=body)
+            elif name == "update_note":
+                note_id = tool_input["note_id"]
+                body = {}
+                for key in ("status", "text", "priority"):
+                    if key in tool_input:
+                        body[key] = tool_input[key]
+                r = await client.patch(f"/api/notes/{note_id}", json=body)
+            elif name == "create_issue":
+                body = {"title": tool_input["title"]}
+                if "description" in tool_input:
+                    body["description"] = tool_input["description"]
+                if "priority" in tool_input:
+                    body["priority"] = tool_input["priority"]
+                if "size" in tool_input:
+                    body["tshirt_size"] = tool_input["size"]
+                if "tags" in tool_input:
+                    body["tags"] = tool_input["tags"]
+                if "due_date" in tool_input:
+                    body["due_date"] = tool_input["due_date"]
+                if "person_id" in tool_input:
+                    body["person_ids"] = [tool_input["person_id"]]
+                r = await client.post("/api/issues", json=body)
+            elif name == "update_issue":
+                issue_id = tool_input["issue_id"]
+                body = {}
+                for key in ("status", "title", "description", "priority", "tags"):
+                    if key in tool_input:
+                        body[key] = tool_input[key]
+                if "size" in tool_input:
+                    body["tshirt_size"] = tool_input["size"]
+                r = await client.patch(f"/api/issues/{issue_id}", json=body)
+            elif name == "create_longform":
+                body = {
+                    "title": tool_input["title"],
+                    "body": tool_input["body"],
+                    "status": "draft",
+                }
+                if "tags" in tool_input:
+                    body["tags"] = tool_input["tags"]
+                if "person_id" in tool_input:
+                    body["person_ids"] = [tool_input["person_id"]]
+                r = await client.post("/api/longform", json=body)
+            elif name == "add_one_on_one_note":
+                person_id = tool_input["person_id"]
+                from datetime import date
+                body = {
+                    "meeting_date": tool_input.get("meeting_date", date.today().isoformat()),
+                    "content": tool_input["content"],
+                }
+                if "title" in tool_input:
+                    body["title"] = tool_input["title"]
+                r = await client.post(f"/api/people/{person_id}/one-on-one-notes", json=body)
             else:
                 return json.dumps({"error": f"Unknown tool: {name}"})
 
@@ -350,7 +595,7 @@ def _build_system_prompt() -> str:
 
     prompt = (
         f"You are a personal assistant chatting via WhatsApp {ctx}. "
-        "You have access to tools that query the user's personal dashboard — a centralized system "
+        "You have access to tools that query and update the user's personal dashboard — a centralized system "
         "that aggregates calendar, email, Slack, Notion, Google Drive, GitHub, Ramp, notes, issues, "
         "people directory, meetings, news, and more."
         + (f" {team_info}" if team_info else "")
@@ -367,10 +612,12 @@ def _build_system_prompt() -> str:
         "cover your need — e.g. complex aggregations, date filtering, or tables not in the graph.\n"
         "5. If the user asks about a person, topic, event, or anything factual — LOOK IT UP. "
         "Do not rely on conversation history alone if the data might have changed.\n"
-        "6. This is a READ-ONLY assistant. You can look up information but CANNOT send messages, "
-        "create events, modify data, or execute mutations. If asked to take an action, explain that "
-        "the user should do it directly in the dashboard.\n"
-        "7. NEVER include raw API keys, tokens, passwords, or secrets in your responses.\n"
+        "6. You can CREATE and UPDATE local dashboard data: notes, thoughts, 1:1 agenda items, "
+        "issues, longform drafts, and 1:1 meeting notes. You CANNOT send emails, Slack messages, "
+        "or create calendar events — those require the user to act directly in the dashboard.\n"
+        "7. When creating items, confirm what you created with key details (ID, title, linked person).\n"
+        "8. When closing items, use get_notes or get_issues first to find the correct ID, then update.\n"
+        "9. NEVER include raw API keys, tokens, passwords, or secrets in your responses.\n"
         "\n"
         "IMPORTANT WhatsApp formatting rules:\n"
         "- Keep responses concise and mobile-friendly\n"
