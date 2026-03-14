@@ -1,6 +1,6 @@
 # Personal Dashboard
 
-A local-first personal dashboard that centralizes your email, calendar, Slack, Notion, GitHub, meetings, and more into a single quiet interface. Runs as a native macOS app or in the browser.
+A local-first personal dashboard that centralizes your email, calendar, Slack, Notion, GitHub, Microsoft 365, meetings, and more into a single quiet interface. Runs as a native macOS app or in the browser.
 
 ## Features
 
@@ -9,14 +9,16 @@ A local-first personal dashboard that centralizes your email, calendar, Slack, N
 - **Notes & Issues**: Quick-capture notes with `@mention` autocomplete, plus local issue tracking with priorities, t-shirt sizing, tags, due dates, and person/meeting linking
 - **Issue Discovery**: Press `D` to have AI scan your email, Slack, meetings, Notion, and calendar, then propose new issues to accept, reject, or edit
 - **Longform Writing**: Markdown editor for blog posts and drafts with split/preview modes, tagging, comments, word count, and "open in Claude" integration
-- **Unified Inbox**: Gmail, Slack, Notion, GitHub, and Google Drive activity in one view
-- **Google Drive**: Browse recent files with Gemini AI relevance ranking and score filtering
+- **Microsoft 365**: Outlook Email and Calendar with full read/write support, plus OneDrive file sync — switch between Google and Microsoft providers at any time
+- **WhatsApp Agent**: Message your dashboard from anywhere — check calendar, search email, create notes/issues, post to Slack, and more via WhatsApp chat
+- **Unified Inbox**: Gmail or Outlook, Slack, Notion, GitHub, and Drive activity in one view
+- **Google Drive & OneDrive**: Browse recent files with Gemini AI relevance ranking and score filtering
 - **News Feed**: Aggregated from your Slack channels, email, and Google News RSS
 - **Meetings**: Calendar integration with cancelled/declined event filtering, plus Granola transcript sync
 - **Ramp Finance**: Expense tracking with AI-prioritized transactions, bills, vendors, and project budgets with incremental sync
 - **Embedded Claude Code**: Full Claude Code CLI terminal with persona and session management
 - **Global Search**: `Cmd+K` command palette to search across all data sources, with quick-create (Tab to create notes, thoughts, or issues)
-- **Plugin Connectors**: Enable/disable services as needed — Google, Slack, Notion, GitHub, Ramp, Granola, Drive, and more
+- **Plugin Connectors**: Enable/disable services as needed — Google, Microsoft 365, Slack, Notion, GitHub, Ramp, Granola, and more
 - **Keyboard-Driven**: Vim-style navigation, chord shortcuts, undo (`u`), and a full shortcut help overlay
 
 ## Quick Start
@@ -75,6 +77,8 @@ Secrets are stored in `config.json` with restricted file permissions. Environmen
 |-----------|------|---------------|
 | Google | OAuth | Gmail, Calendar |
 | Google Drive | OAuth | Drive files, Docs, Sheets |
+| Microsoft 365 | OAuth | Outlook Email, Calendar (switchable with Google) |
+| Microsoft OneDrive | OAuth | OneDrive files, Word, Excel, PowerPoint |
 | Slack | API Token | DMs, mentions, channel search |
 | Notion | API Token | Recently edited pages |
 | GitHub | CLI (`gh`) | Pull requests, issues, code search |
@@ -98,11 +102,11 @@ Each connector includes setup instructions in the app. Enable/disable them in Se
 | `/team` | Org Chart | Hierarchical team view |
 | `/people` | People | Directory of coworkers and contacts with group filtering |
 | `/people/:id` | Person | Person detail: meetings, 1:1 topics, notes, attributes, connections |
-| `/meetings` | Meetings | Calendar + Granola meeting history |
-| `/email` | Email | Gmail search and thread reading |
+| `/meetings` | Meetings | Google or Outlook calendar + Granola meeting history |
+| `/email` | Email | Gmail or Outlook search and thread reading |
 | `/slack` | Slack | Message history, channels, DMs |
 | `/notion` | Notion | Recently edited pages |
-| `/drive` | Drive | Google Drive files with Gemini AI relevance ranking |
+| `/drive` | Drive | Google Drive or OneDrive files with Gemini AI relevance ranking |
 | `/github` | GitHub | Pull requests and issues |
 | `/ramp` | Ramp | Transactions, bills, and project tracking with AI ranking |
 | `/news` | News | Infinite scroll aggregated news |
@@ -165,6 +169,7 @@ The frontend dev server proxies API requests to `localhost:8000`.
 - **Local-only** — runs entirely on your machine, no cloud
 - **Single user** — no auth layer, trusted local environment
 - **Sync-on-demand** — data syncs manually or via the Sync button; Granola syncs on startup; Ramp supports incremental sync
+- **Provider switching** — switch between Google and Microsoft for email and calendar at any time in Settings
 - **Plugin connectors** — each service self-registers with metadata
 - **AI-powered** — Gemini ranks priorities, discovers issues, scores Drive files and expenses
 - **Full-text search** — SQLite FTS indexes across people, notes, meetings, emails, and issues

@@ -1,4 +1,4 @@
-.PHONY: start stop restart backend frontend status logs app build dev run test test-headed test-setup lint fmt dmg release db-migrate db-upgrade db-downgrade db-current db-history db-revision whatsapp whatsapp-stop setup
+.PHONY: start stop restart backend frontend status logs app build dev run test test-headed test-setup lint fmt dmg release db-migrate db-upgrade db-downgrade db-current db-history db-revision whatsapp whatsapp-stop setup ship
 
 BACKEND_DIR = app/backend
 FRONTEND_DIR = app/frontend
@@ -177,3 +177,56 @@ whatsapp:
 
 whatsapp-stop:
 	@lsof -ti:3001 | xargs kill -9 2>/dev/null && echo "WhatsApp sidecar stopped" || echo "WhatsApp sidecar not running"
+
+# --- Ship (commit, push, PR, optional merge) ---
+# Usage:
+#   make ship                    # commit, push, open PR
+#   make ship m="feat: add X"   # custom commit message
+#   make ship merge=1            # also merge the PR after creating it
+
+ship:
+	@BRANCH=$$(git rev-parse --abbrev-ref HEAD); \
+	if [ "$$BRANCH" = "main" ] || [ "$$BRANCH" = "master" ]; then \
+		echo "Error: You're on $$BRANCH. Create a feature branch first."; \
+		exit 1; \
+	fi; \
+	if [ -n "$$(git status --porcelain)" ]; then \
+		echo "=== Staging & Committing ==="; \
+		git add -A; \
+		if [ -n "$(m)" ]; then \
+			MSG="$(m)"; \
+		else \
+			echo "Generating commit message with Claude..."; \
+			MSG=$$(git diff --cached | claude -p "Write a short, conventional commit message (one line, no quotes) for this diff. Just output the message, nothing else." 2>/dev/null); \
+			MSG="$${MSG:-Update $$BRANCH}"; \
+			echo "Commit: $$MSG"; \
+		fi; \
+		git commit -m "$$MSG"; \
+	elif [ -z "$$(git log main..HEAD --oneline 2>/dev/null)" ]; then \
+		echo "Nothing to commit and no commits ahead of main."; \
+		exit 1; \
+	else \
+		echo "=== No uncommitted changes, using existing commits ==="; \
+		MSG=$$(git log -1 --pretty=format:"%s"); \
+	fi; \
+	echo "=== Pushing $$BRANCH ==="; \
+	git push -u origin "$$BRANCH"; \
+	echo "=== Creating PR ==="; \
+	DIFF=$$(git log main..HEAD --pretty=format:"%s%n%n%b" 2>/dev/null); \
+	FULL_DIFF=$$(git diff main..HEAD 2>/dev/null); \
+	echo "Generating PR title and body with Claude..."; \
+	TITLE=$$(echo "$$DIFF" | claude -p "Write a short PR title (under 70 chars, no quotes) summarizing these commits. Just output the title, nothing else." 2>/dev/null); \
+	TITLE="$${TITLE:-$$MSG}"; \
+	BODY=$$(echo "$$FULL_DIFF" | claude -p "Write a PR description for this diff. Format: ## Summary with 2-4 bullet points, then ## Changes listing key file changes. Just output the markdown, nothing else." 2>/dev/null); \
+	BODY="$${BODY:-$$(git log main..HEAD --pretty=format:'- %s')}"; \
+	echo "PR: $$TITLE"; \
+	PR_URL=$$(gh pr create --title "$$TITLE" --body "$$BODY" 2>&1); \
+	if echo "$$PR_URL" | grep -q "already exists"; then \
+		echo "PR already exists for this branch."; \
+		PR_URL=$$(gh pr view --json url -q .url); \
+	fi; \
+	echo "$$PR_URL"; \
+	if [ "$(merge)" = "1" ]; then \
+		echo "=== Merging PR ==="; \
+		gh pr merge --squash --delete-branch; \
+	fi
