@@ -99,6 +99,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(SecurityHeadersMiddleware)
 
+# Demo mode: intercept live API calls with fixture data
+from demo_middleware import is_demo_mode
+
+if is_demo_mode():
+    from demo_middleware import DemoMiddleware
+
+    app.add_middleware(DemoMiddleware)
+    log.info("[demo] Demo mode enabled — live API calls will return fixture data")
+
 # API routes (must be registered before the SPA catch-all)
 app.include_router(dashboard.router)
 app.include_router(people.router)
@@ -231,13 +240,17 @@ def startup():
     _step("rebuild_from_db (person matching cache)", rebuild_from_db)
     _step("sync_meeting_files", sync_meeting_files)
 
-    from connectors.registry import is_enabled
-    if is_enabled("granola"):
-        _step("sync_granola", sync_granola)
+    if not is_demo_mode():
+        from connectors.registry import is_enabled
 
-    from routers.sync import start_auto_sync
+        if is_enabled("granola"):
+            _step("sync_granola", sync_granola)
 
-    _step("start_auto_sync", start_auto_sync)
+        from routers.sync import start_auto_sync
+
+        _step("start_auto_sync", start_auto_sync)
+    else:
+        log.info("[startup] Demo mode — skipping sync and auto-sync")
     log.info("[startup] All startup steps completed in %.2fs", time.time() - t_total)
 
 

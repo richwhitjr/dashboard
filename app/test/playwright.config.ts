@@ -17,7 +17,19 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
+      testIgnore: 'demo-capture.spec.ts',
       use: { browserName: 'chromium' },
+    },
+    {
+      name: 'demo-capture',
+      testMatch: 'demo-capture.spec.ts',
+      use: {
+        browserName: 'chromium',
+        viewport: { width: 1280, height: 800 },
+        video: { mode: 'on', size: { width: 1280, height: 800 } },
+        screenshot: 'off',
+        launchOptions: { slowMo: 50 },
+      },
     },
   ],
 });

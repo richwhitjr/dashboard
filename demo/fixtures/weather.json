@@ -1,0 +1,7 @@
+{
+  "weather": {
+    "temp_f": 62,
+    "condition": "partly cloudy",
+    "location": "San Francisco, California"
+  }
+}

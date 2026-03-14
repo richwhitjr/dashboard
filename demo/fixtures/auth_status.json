@@ -1,0 +1,92 @@
+{
+  "google": {
+    "configured": true,
+    "connected": true,
+    "error": null,
+    "detail": "Authenticated via OAuth token",
+    "sync": {
+      "gmail": {"last_sync_at": "2026-03-14T08:00:00", "last_sync_status": "success", "last_error": null, "items_synced": 47},
+      "calendar": {"last_sync_at": "2026-03-14T08:00:00", "last_sync_status": "success", "last_error": null, "items_synced": 23}
+    }
+  },
+  "google_drive": {
+    "configured": true,
+    "connected": true,
+    "error": null,
+    "detail": "Authenticated via OAuth token",
+    "sync": {
+      "drive": {"last_sync_at": "2026-03-14T08:00:00", "last_sync_status": "success", "last_error": null, "items_synced": 15},
+      "sheets": {"last_sync_at": "2026-03-14T08:00:00", "last_sync_status": "success", "last_error": null, "items_synced": 4},
+      "docs": {"last_sync_at": "2026-03-14T08:00:00", "last_sync_status": "success", "last_error": null, "items_synced": 6}
+    }
+  },
+  "microsoft": {
+    "configured": false,
+    "connected": false,
+    "error": null,
+    "detail": null,
+    "sync": {}
+  },
+  "microsoft_drive": {
+    "configured": false,
+    "connected": false,
+    "error": null,
+    "detail": null,
+    "sync": {}
+  },
+  "slack": {
+    "configured": true,
+    "connected": true,
+    "error": null,
+    "detail": "Authenticated as alex.chen in Acme Corp",
+    "sync": {
+      "slack": {"last_sync_at": "2026-03-14T08:00:00", "last_sync_status": "success", "last_error": null, "items_synced": 34}
+    }
+  },
+  "notion": {
+    "configured": true,
+    "connected": true,
+    "error": null,
+    "detail": "Authenticated as Alex Chen",
+    "sync": {
+      "notion": {"last_sync_at": "2026-03-14T08:00:00", "last_sync_status": "success", "last_error": null, "items_synced": 12},
+      "notion_meetings": {"last_sync_at": "2026-03-14T08:00:00", "last_sync_status": "success", "last_error": null, "items_synced": 3}
+    }
+  },
+  "granola": {
+    "configured": true,
+    "connected": true,
+    "error": null,
+    "detail": "Authenticated via Granola MCP (mcp.granola.ai)",
+    "sync": {
+      "granola": {"last_sync_at": "2026-03-14T08:00:00", "last_sync_status": "success", "last_error": null, "items_synced": 8}
+    }
+  },
+  "github": {
+    "configured": true,
+    "connected": true,
+    "error": null,
+    "detail": "Authenticated as alexchen",
+    "sync": {
+      "github": {"last_sync_at": "2026-03-14T08:00:00", "last_sync_status": "success", "last_error": null, "items_synced": 14}
+    }
+  },
+  "ramp": {
+    "configured": true,
+    "connected": true,
+    "error": null,
+    "detail": "Connected to Acme Corp Ramp account",
+    "sync": {
+      "ramp": {"last_sync_at": "2026-03-14T08:00:00", "last_sync_status": "success", "last_error": null, "items_synced": 22},
+      "ramp_vendors": {"last_sync_at": "2026-03-14T08:00:00", "last_sync_status": "success", "last_error": null, "items_synced": 10},
+      "ramp_bills": {"last_sync_at": "2026-03-14T08:00:00", "last_sync_status": "success", "last_error": null, "items_synced": 6}
+    }
+  },
+  "claude_code": {
+    "configured": true,
+    "connected": true,
+    "error": null,
+    "detail": "Found at /usr/local/bin/claude",
+    "sync": {}
+  }
+}

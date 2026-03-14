@@ -1,4 +1,4 @@
-.PHONY: start stop restart backend frontend status logs app build dev run test test-headed test-setup lint fmt dmg release db-migrate db-upgrade db-downgrade db-current db-history db-revision whatsapp whatsapp-stop setup ship
+.PHONY: start stop restart backend frontend status logs app build dev run test test-headed test-setup lint fmt dmg release db-migrate db-upgrade db-downgrade db-current db-history db-revision whatsapp whatsapp-stop setup ship demo demo-seed demo-backend demo-frontend demo-reset demo-capture
 
 BACKEND_DIR = app/backend
 FRONTEND_DIR = app/frontend
@@ -178,6 +178,43 @@ whatsapp:
 whatsapp-stop:
 	@lsof -ti:3001 | xargs kill -9 2>/dev/null && echo "WhatsApp sidecar stopped" || echo "WhatsApp sidecar not running"
 
+# --- Demo mode (mocked data, no real API calls) ---
+
+demo: venv demo-seed demo-backend demo-frontend
+	@echo "Demo mode running at http://localhost:5173"
+
+demo-seed:
+	@cd $(BACKEND_DIR) && source venv/bin/activate && \
+		DASHBOARD_DATA_DIR=$(PWD)/demo/data DEMO_MODE=1 \
+		python ../../demo/seed.py
+
+demo-backend:
+	@lsof -ti:8000 | xargs kill -9 2>/dev/null || true
+	@cd $(BACKEND_DIR) && source venv/bin/activate && \
+		DEMO_MODE=1 DASHBOARD_DATA_DIR=$(PWD)/demo/data \
+		uvicorn main:app --port 8000 --reload > /tmp/dashboard-demo-backend.log 2>&1 &
+	@sleep 2
+	@curl -sf http://localhost:8000/api/health > /dev/null && echo "Demo backend on :8000" || echo "Demo backend failed — check /tmp/dashboard-demo-backend.log"
+
+demo-frontend:
+	@lsof -ti:5173 | xargs kill -9 2>/dev/null || true
+	@if [ ! -d $(FRONTEND_DIR)/node_modules ]; then echo "Installing frontend dependencies..."; cd $(FRONTEND_DIR) && npm install; fi
+	@cd $(FRONTEND_DIR) && npx vite --port 5173 > /tmp/dashboard-demo-frontend.log 2>&1 &
+	@sleep 2
+	@curl -sf http://localhost:5173 > /dev/null && echo "Demo frontend on :5173" || echo "Demo frontend failed — check /tmp/dashboard-demo-frontend.log"
+
+demo-reset:
+	@rm -rf demo/data
+	@$(MAKE) demo-seed
+	@echo "Demo data reset"
+
+demo-capture:
+	@curl -sf http://localhost:5173 > /dev/null 2>&1 || (echo "Demo not running. Run 'make demo' first." && exit 1)
+	@cd app/test && npx playwright test --project=demo-capture
+	@echo ""
+	@echo "Screenshots: demo/screenshots/"
+	@echo "Video:       demo/video/"
+
 # --- Ship (commit, push, PR, optional merge) ---
 # Usage:
 #   make ship                    # commit, push, open PR
@@ -222,8 +259,18 @@ ship:
 	echo "PR: $$TITLE"; \
 	PR_URL=$$(gh pr create --title "$$TITLE" --body "$$BODY" 2>&1); \
 	if echo "$$PR_URL" | grep -q "already exists"; then \
-		echo "PR already exists for this branch."; \
 		PR_URL=$$(gh pr view --json url -q .url); \
+		echo "PR already exists: $$PR_URL"; \
+		echo "New title: $$TITLE"; \
+		echo ""; \
+		printf "Update PR title and body? [y/N] "; \
+		read -r CONFIRM; \
+		if [ "$$CONFIRM" = "y" ] || [ "$$CONFIRM" = "Y" ]; then \
+			gh pr edit --title "$$TITLE" --body "$$BODY"; \
+			echo "PR updated."; \
+		else \
+			echo "PR left unchanged."; \
+		fi; \
 	fi; \
 	echo "$$PR_URL"; \
 	if [ "$(merge)" = "1" ]; then \

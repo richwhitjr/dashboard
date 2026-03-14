@@ -1,0 +1,27 @@
+{
+  "query": "",
+  "count": 3,
+  "events": [
+    {
+      "id": "cal_s1",
+      "summary": "Engineering Standup",
+      "start_time": "2026-03-14T09:00:00-07:00",
+      "end_time": "2026-03-14T09:15:00-07:00",
+      "attendees": ["sarah@acmecorp.com", "marcus@acmecorp.com", "james@acmecorp.com"]
+    },
+    {
+      "id": "cal_s2",
+      "summary": "1:1 with Sarah Kim",
+      "start_time": "2026-03-14T10:00:00-07:00",
+      "end_time": "2026-03-14T10:30:00-07:00",
+      "attendees": ["sarah@acmecorp.com"]
+    },
+    {
+      "id": "cal_s3",
+      "summary": "Board Deck Review",
+      "start_time": "2026-03-14T14:00:00-07:00",
+      "end_time": "2026-03-14T15:00:00-07:00",
+      "attendees": ["david@acmecorp.com", "emily@acmecorp.com"]
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "thread_id": "thread_demo_1",
+  "subject": "Re: Q1 Engineering OKR Review",
+  "messages": [
+    {
+      "id": "msg_demo_1a",
+      "from_name": "Alex Chen",
+      "from_email": "alex@acmecorp.com",
+      "date": "2026-03-13T15:00:00Z",
+      "body": "Team, here are the updated Q1 OKR targets for engineering. Please review and flag any concerns by EOD tomorrow.\n\n1. API latency p99 < 200ms\n2. Deploy auth migration to 100% of users\n3. Hire 2 senior backend engineers\n4. Reduce incident response time to < 15min"
+    },
+    {
+      "id": "msg_demo_1b",
+      "from_name": "Sarah Kim",
+      "from_email": "sarah@acmecorp.com",
+      "date": "2026-03-14T07:30:00Z",
+      "body": "Thanks for the updated targets. I think we should revisit the latency goal given the migration timeline. The auth migration is introducing an extra network hop that adds ~30ms. Can we discuss in our 1:1 today?"
+    }
+  ]
+}

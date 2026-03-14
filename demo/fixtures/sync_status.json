@@ -1,0 +1,15 @@
+{
+  "status": "idle",
+  "last_sync": "2026-03-14T08:00:00",
+  "sources": {
+    "gmail": {"status": "success", "items": 47, "duration": 3.2},
+    "calendar": {"status": "success", "items": 23, "duration": 1.8},
+    "slack": {"status": "success", "items": 34, "duration": 2.5},
+    "notion": {"status": "success", "items": 12, "duration": 1.2},
+    "github": {"status": "success", "items": 14, "duration": 2.1},
+    "granola": {"status": "success", "items": 8, "duration": 0.8},
+    "drive": {"status": "success", "items": 15, "duration": 2.0},
+    "ramp": {"status": "success", "items": 22, "duration": 1.5},
+    "news": {"status": "success", "items": 20, "duration": 4.2}
+  }
+}

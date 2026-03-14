@@ -1,0 +1,46 @@
+{
+  "query": "",
+  "count": 5,
+  "files": [
+    {
+      "id": "drive_s1",
+      "name": "Q1 2026 Engineering OKRs",
+      "mime_type": "application/vnd.google-apps.spreadsheet",
+      "modified_time": "2026-03-14T06:00:00Z",
+      "web_view_link": "https://docs.google.com/spreadsheets/d/demo1",
+      "modified_by_name": "Sarah Kim"
+    },
+    {
+      "id": "drive_s2",
+      "name": "Board Deck - March 2026",
+      "mime_type": "application/vnd.google-apps.presentation",
+      "modified_time": "2026-03-14T04:00:00Z",
+      "web_view_link": "https://docs.google.com/presentation/d/demo2",
+      "modified_by_name": "David Park"
+    },
+    {
+      "id": "drive_s3",
+      "name": "Auth Migration - Architecture Diagram",
+      "mime_type": "application/vnd.google-apps.document",
+      "modified_time": "2026-03-13T20:00:00Z",
+      "web_view_link": "https://docs.google.com/document/d/demo3",
+      "modified_by_name": "Marcus Johnson"
+    },
+    {
+      "id": "drive_s4",
+      "name": "Q1 Infrastructure Cost Report",
+      "mime_type": "application/vnd.google-apps.spreadsheet",
+      "modified_time": "2026-03-13T16:00:00Z",
+      "web_view_link": "https://docs.google.com/spreadsheets/d/demo4",
+      "modified_by_name": "Rachel Torres"
+    },
+    {
+      "id": "drive_s5",
+      "name": "Hiring Pipeline Tracker",
+      "mime_type": "application/vnd.google-apps.spreadsheet",
+      "modified_time": "2026-03-12T14:00:00Z",
+      "web_view_link": "https://docs.google.com/spreadsheets/d/demo5",
+      "modified_by_name": "Alex Chen"
+    }
+  ]
+}

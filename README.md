@@ -2,6 +2,19 @@
 
 A local-first personal dashboard that centralizes your email, calendar, Slack, Notion, GitHub, Microsoft 365, meetings, and more into a single quiet interface. Runs as a native macOS app or in the browser.
 
+![Briefing — AI-generated morning priorities, calendar, and inbox pulse](docs/screenshots/01-briefing-overview.png)
+
+<details>
+<summary><strong>Watch the full walkthrough (1 min)</strong></summary>
+
+<video src="docs/video/demo-walkthrough.webm" controls width="100%">
+  <a href="docs/video/demo-walkthrough.webm">Download video</a>
+</video>
+
+*If the video doesn't load, download [docs/video/demo-walkthrough.webm](docs/video/demo-walkthrough.webm) directly.*
+
+</details>
+
 ## Features
 
 - **Morning Briefing**: AI-generated priorities, weather, inbox pulse (email, Slack, GitHub, tasks, bills), calendar timeline, overnight digest — all on the default home page
@@ -20,6 +33,15 @@ A local-first personal dashboard that centralizes your email, calendar, Slack, N
 - **Global Search**: `Cmd+K` command palette to search across all data sources, with quick-create (Tab to create notes, thoughts, or issues)
 - **Plugin Connectors**: Enable/disable services as needed — Google, Microsoft 365, Slack, Notion, GitHub, Ramp, Granola, and more
 - **Keyboard-Driven**: Vim-style navigation, chord shortcuts, undo (`u`), and a full shortcut help overlay
+
+## Screenshots
+
+| | |
+|---|---|
+| ![Email — AI-ranked inbox](docs/screenshots/02-email-inbox.png) **Email** — AI-ranked inbox with priority scores | ![Notes — @mention autocomplete](docs/screenshots/04-notes-mention.png) **Notes** — Quick capture with @mention linking |
+| ![Issues — local tracking with detail panel](docs/screenshots/05-issues-detail.png) **Issues** — Priority, sizing, tags, and AI discovery | ![People — directory with org chart](docs/screenshots/06-people-table.png) **People** — Coworkers, contacts, groups, and org tree |
+| ![Writing — split-view markdown editor](docs/screenshots/14-longform-editor.png) **Writing** — Blog posts and drafts with split preview | ![Claude — embedded terminal](docs/screenshots/15-claude-terminal.png) **Claude** — Full Claude Code CLI with personas |
+| ![Command palette — Cmd+K search](docs/screenshots/17-command-palette.png) **Search** — Cmd+K across all data sources | |
 
 ## Quick Start
 

@@ -41,6 +41,11 @@ playwright-report/
 
 plans/
 
+# Demo mode (generated data + capture output)
+demo/data/
+demo/screenshots/
+demo/video/
+
 # Backend specifics
 app/backend/venv/
 app/backend/.env

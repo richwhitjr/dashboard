@@ -1,0 +1,53 @@
+{
+  "items": [
+    {
+      "title": "Prep for 1:1 with Sarah Kim",
+      "reason": "She flagged concerns about the API migration timeline in yesterday's standup — discuss blockers and revised estimates.",
+      "source": "calendar",
+      "urgency": "high"
+    },
+    {
+      "title": "Review Marcus's PR for auth refactor",
+      "reason": "PR #247 has been open for 3 days and is blocking the sprint. He requested your review directly.",
+      "source": "email",
+      "urgency": "high"
+    },
+    {
+      "title": "Respond to Lisa Park's Slack DM",
+      "reason": "She asked about budget approval for the new monitoring tool — needs your sign-off before vendor meeting tomorrow.",
+      "source": "slack",
+      "urgency": "high"
+    },
+    {
+      "title": "Board deck review with CEO",
+      "reason": "Meeting at 2pm — review the engineering section and have updated headcount numbers ready.",
+      "source": "calendar",
+      "urgency": "high"
+    },
+    {
+      "title": "Overdue invoice from CloudScale",
+      "reason": "$12,400 bill is 5 days past due. Verify with finance if payment was processed.",
+      "source": "ramp",
+      "urgency": "medium"
+    },
+    {
+      "title": "Q1 OKR draft in Drive updated",
+      "reason": "Product team revised the shared OKR doc — check if engineering targets still align.",
+      "source": "drive",
+      "urgency": "medium"
+    },
+    {
+      "title": "Follow up on hiring pipeline",
+      "reason": "Open note to sync with recruiting on the senior backend role — 2 candidates in final round.",
+      "source": "note",
+      "urgency": "medium"
+    },
+    {
+      "title": "Design review feedback needed",
+      "reason": "UX team shared new onboarding mockups in #product channel — they need your input by EOD.",
+      "source": "slack",
+      "urgency": "low"
+    }
+  ],
+  "summary": "Your morning is meeting-heavy with back-to-back 1:1s, but the key focus should be Sarah's API migration concerns and the board deck review with the CEO at 2pm. Marcus's auth PR is blocking the sprint and needs your review. There's also an overdue CloudScale invoice that finance should have handled."
+}

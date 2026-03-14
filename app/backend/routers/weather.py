@@ -109,6 +109,11 @@ def _get_coords() -> tuple[float, float, str] | None:
 
 def get_weather() -> dict | None:
     """Fetch current weather. Returns dict or None. Cached for 30 min."""
+    import os
+
+    if os.environ.get("DEMO_MODE", "").strip() in ("1", "true", "yes"):
+        return {"temp_f": 62, "condition": "partly cloudy", "location": "San Francisco, California"}
+
     cached = _cache.get("weather")
     if cached and (time.time() - cached["ts"]) < CACHE_TTL:
         return cached["data"]

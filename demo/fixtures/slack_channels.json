@@ -1,0 +1,11 @@
+{
+  "count": 6,
+  "channels": [
+    {"id": "C001", "name": "general", "num_members": 45, "is_member": true},
+    {"id": "C002", "name": "engineering", "num_members": 18, "is_member": true},
+    {"id": "C003", "name": "product", "num_members": 12, "is_member": true},
+    {"id": "C004", "name": "design", "num_members": 8, "is_member": true},
+    {"id": "C005", "name": "incidents", "num_members": 15, "is_member": true},
+    {"id": "C006", "name": "random", "num_members": 42, "is_member": true}
+  ]
+}

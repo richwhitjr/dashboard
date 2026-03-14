@@ -1,0 +1,52 @@
+{
+  "query": "",
+  "total": 5,
+  "count": 5,
+  "messages": [
+    {
+      "id": "slack_s1",
+      "user_name": "Lisa Park",
+      "text": "Hey Alex, quick question — do you have budget approval for the Datadog upgrade? We need to decide before the vendor meeting Thursday.",
+      "channel_name": "dm",
+      "channel_type": "dm",
+      "ts": "1710400200",
+      "permalink": "https://acmecorp.slack.com/archives/D01/p1710400200"
+    },
+    {
+      "id": "slack_s2",
+      "user_name": "James Wright",
+      "text": "The deploy pipeline is green again. Root cause was a flaky integration test — I've quarantined it for now.",
+      "channel_name": "engineering",
+      "channel_type": "channel",
+      "ts": "1710396600",
+      "permalink": "https://acmecorp.slack.com/archives/C02/p1710396600"
+    },
+    {
+      "id": "slack_s3",
+      "user_name": "Nina Patel",
+      "text": "Shared the updated onboarding mockups in the design channel. @alex would love your feedback on the new flow before we finalize.",
+      "channel_name": "product",
+      "channel_type": "channel",
+      "ts": "1710393000",
+      "permalink": "https://acmecorp.slack.com/archives/C03/p1710393000"
+    },
+    {
+      "id": "slack_s4",
+      "user_name": "Sarah Kim",
+      "text": "Heads up — the auth migration load test showed 2x latency increase at peak. I'm investigating but might need to push the rollout.",
+      "channel_name": "engineering",
+      "channel_type": "channel",
+      "ts": "1710389400",
+      "permalink": "https://acmecorp.slack.com/archives/C02/p1710389400"
+    },
+    {
+      "id": "slack_s5",
+      "user_name": "Marcus Johnson",
+      "text": "PR #247 is updated with all review feedback. Ready for final approval when you get a chance.",
+      "channel_name": "dm",
+      "channel_type": "dm",
+      "ts": "1710385800",
+      "permalink": "https://acmecorp.slack.com/archives/D02/p1710385800"
+    }
+  ]
+}

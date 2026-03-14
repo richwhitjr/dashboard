@@ -1,0 +1,61 @@
+{
+  "query": "",
+  "count": 5,
+  "messages": [
+    {
+      "id": "msg_demo_1",
+      "thread_id": "thread_demo_1",
+      "subject": "Re: Q1 Engineering OKR Review",
+      "snippet": "Thanks for the updated targets. I think we should revisit the latency goal given the migration timeline...",
+      "from_name": "Sarah Kim",
+      "from_email": "sarah@acmecorp.com",
+      "date": "2026-03-14T07:30:00Z",
+      "is_unread": true,
+      "labels": ["INBOX"]
+    },
+    {
+      "id": "msg_demo_2",
+      "thread_id": "thread_demo_2",
+      "subject": "Board Deck - Engineering Section Draft",
+      "snippet": "Hi Alex, attached is the latest version. Please review the headcount slide before our 2pm sync.",
+      "from_name": "David Park",
+      "from_email": "david@acmecorp.com",
+      "date": "2026-03-14T06:45:00Z",
+      "is_unread": true,
+      "labels": ["INBOX", "IMPORTANT"]
+    },
+    {
+      "id": "msg_demo_3",
+      "thread_id": "thread_demo_3",
+      "subject": "Auth Refactor PR - Ready for Review",
+      "snippet": "Hey Alex, PR #247 is ready. I've addressed all the comments from the first round. Would love your review today if possible.",
+      "from_name": "Marcus Johnson",
+      "from_email": "marcus@acmecorp.com",
+      "date": "2026-03-13T22:15:00Z",
+      "is_unread": false,
+      "labels": ["INBOX"]
+    },
+    {
+      "id": "msg_demo_4",
+      "thread_id": "thread_demo_4",
+      "subject": "Re: Vendor Meeting - CloudScale Contract Renewal",
+      "snippet": "Confirmed for Thursday 10am. I'll prepare the usage report and bring the renewal terms for discussion.",
+      "from_name": "Lisa Park",
+      "from_email": "lisa@acmecorp.com",
+      "date": "2026-03-13T18:30:00Z",
+      "is_unread": false,
+      "labels": ["INBOX"]
+    },
+    {
+      "id": "msg_demo_5",
+      "thread_id": "thread_demo_5",
+      "subject": "Quarterly Infrastructure Cost Report",
+      "snippet": "Please find the attached Q1 infrastructure cost breakdown. AWS spend is up 12% from last quarter...",
+      "from_name": "Rachel Torres",
+      "from_email": "rachel@acmecorp.com",
+      "date": "2026-03-13T16:00:00Z",
+      "is_unread": false,
+      "labels": ["INBOX"]
+    }
+  ]
+}
