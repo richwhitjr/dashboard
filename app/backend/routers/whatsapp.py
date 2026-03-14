@@ -44,14 +44,11 @@ def _get_or_create_webhook_token() -> str:
     return token
 
 
-# Initialized on first use
-_webhook_token: str | None = None
+# Create token eagerly at import time so it exists before sidecar starts
+_webhook_token: str = _get_or_create_webhook_token()
 
 
 def get_webhook_token() -> str:
-    global _webhook_token
-    if _webhook_token is None:
-        _webhook_token = _get_or_create_webhook_token()
     return _webhook_token
 
 
