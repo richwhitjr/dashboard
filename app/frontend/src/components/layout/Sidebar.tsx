@@ -374,7 +374,7 @@ export function Sidebar() {
         <div className="sidebar-bottom-row">
           <NavLink to="/settings" className="sidebar-settings-btn">
             <span className="sidebar-settings-icon">&#x2699;</span>
-            <span>Connections</span>
+            <span>Settings</span>
             <span className="sidebar-settings-status">
               <span className="count-badge">{connectedCount}/{authServices.length}</span>
             </span>
