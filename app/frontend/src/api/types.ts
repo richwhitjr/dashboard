@@ -404,6 +404,7 @@ export interface PriorityItem {
 
 export interface PrioritiesData {
   items: PriorityItem[];
+  summary?: string | null;
   error?: string;
 }
 

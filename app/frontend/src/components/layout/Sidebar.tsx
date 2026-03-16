@@ -117,12 +117,9 @@ export function Sidebar() {
     ? Object.entries(authStatus).filter(([id]) => enabled.has(id))
     : [];
   const connectedCount = authServices.filter(([, s]) => {
+    if (s.connected) return true;
     const syncVals: SyncSourceInfo[] = Object.values(s.sync || {});
-    const hasSyncSuccess = syncVals.some((sv) => sv.last_sync_status === 'success');
-    if (hasSyncSuccess) return true;
-    if (!s.connected) return false;
-    if (syncVals.length === 0) return s.connected;
-    return false;
+    return syncVals.some((sv) => sv.last_sync_status === 'success');
   }).length;
 
 

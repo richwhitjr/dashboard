@@ -51,6 +51,7 @@ def start_server(port):
         # Catch BaseException to also capture SystemExit (raised by sys.exit())
         log.error("Uvicorn server crashed: %s: %s", type(e).__name__, e)
         import traceback
+
         log.error("".join(traceback.format_exc()))
         raise
 

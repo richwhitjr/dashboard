@@ -24,10 +24,7 @@ def _check_google() -> dict:
 
     has_client_creds = _get_client_credentials() is not None
     if not has_client_creds and not TOKEN_PATH.exists():
-        result["detail"] = (
-            "No Google credentials found. Add GOOGLE_CLIENT_ID and "
-            "GOOGLE_CLIENT_SECRET in Settings."
-        )
+        result["detail"] = "No Google credentials found. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in Settings."
         return result
 
     result["configured"] = has_client_creds or TOKEN_PATH.exists()
@@ -195,8 +192,7 @@ def _check_microsoft() -> dict:
     has_creds = _get_client_credentials() is not None
     if not has_creds and not MS_TOKEN_PATH.exists():
         result["detail"] = (
-            "No Microsoft credentials found. Add MICROSOFT_CLIENT_ID and "
-            "MICROSOFT_CLIENT_SECRET in Settings."
+            "No Microsoft credentials found. Add MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET in Settings."
         )
         return result
 
@@ -240,7 +236,12 @@ def _check_granola() -> dict:
 
 def _check_news() -> dict:
     """News requires no auth — always available."""
-    return {"configured": True, "connected": True, "error": None, "detail": "News aggregation works automatically — no setup needed"}
+    return {
+        "configured": True,
+        "connected": True,
+        "error": None,
+        "detail": "News aggregation works automatically — no setup needed",
+    }
 
 
 def _get_sync_states() -> dict:
@@ -610,9 +611,7 @@ def switch_email_calendar_provider(body: dict):
         db.execute("DELETE FROM calendar_events")
         db.execute("DELETE FROM cached_email_priorities")
         # Clear sync state for both providers
-        db.execute(
-            "DELETE FROM sync_state WHERE source IN ('gmail', 'calendar', 'outlook_email', 'outlook_calendar')"
-        )
+        db.execute("DELETE FROM sync_state WHERE source IN ('gmail', 'calendar', 'outlook_email', 'outlook_calendar')")
         db.commit()
 
     logger.info("Switched email/calendar provider from %s to %s, cleared data", old_provider, provider)

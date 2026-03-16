@@ -167,8 +167,7 @@ export function PeoplePage() {
         <select
           value={groupFilter}
           onChange={(e) => setGroupFilter(e.target.value)}
-          className="note-input"
-          style={{ width: 'auto', flex: '0 0 auto' }}
+          className="issue-select"
         >
           <option value="">All groups</option>
           {(groups ?? []).map((g) => (

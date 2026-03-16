@@ -93,7 +93,7 @@ export function PrioritizedSourceList<T extends PrioritizedItem>({
     selector: '.dashboard-item-row',
     enabled: tab === 'priority',
     onDismiss: (i) => { if (items[i]) dismiss.mutate({ source, item_id: getItemId(items[i]) }); },
-    onOpen: (i) => { if (items[i] && onOpen) onOpen(items[i]); },
+    onOpen: onOpen ? (i) => { if (items[i]) onOpen(items[i]); } : undefined,
     onCreateIssue: (i) => { if (items[i]) createIssue.mutate({ title: getIssueTitle(items[i]) }); },
     onExpand: (i) => { if (items[i]) toggleExpand(items[i].id); },
     onToggleFilter: () => setMinScore(prev => prev === 0 ? defaultMinScore : 0),

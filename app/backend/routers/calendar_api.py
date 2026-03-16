@@ -139,9 +139,7 @@ def get_event(event_id: str):
             "summary": event.get("subject", "(No title)"),
             "description": event.get("bodyPreview", ""),
             "location": (
-                event.get("location", {}).get("displayName", "")
-                if isinstance(event.get("location"), dict)
-                else ""
+                event.get("location", {}).get("displayName", "") if isinstance(event.get("location"), dict) else ""
             ),
             "start_time": start_dt.get("dateTime", ""),
             "end_time": end_dt.get("dateTime", ""),

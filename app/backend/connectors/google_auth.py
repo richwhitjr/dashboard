@@ -145,8 +145,7 @@ def run_oauth_flow() -> Credentials:
     creds_pair = _get_client_credentials()
     if not creds_pair:
         raise FileNotFoundError(
-            "No Google OAuth client credentials found. "
-            "Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in Settings."
+            "No Google OAuth client credentials found. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in Settings."
         )
 
     client_id, client_secret = creds_pair

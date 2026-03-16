@@ -41,10 +41,7 @@ def sync_outlook_messages() -> int:
     rows = []
     for msg in messages:
         from_info = msg.get("from", {}).get("emailAddress", {})
-        to_list = ", ".join(
-            r.get("emailAddress", {}).get("address", "")
-            for r in msg.get("toRecipients", [])
-        )
+        to_list = ", ".join(r.get("emailAddress", {}).get("address", "") for r in msg.get("toRecipients", []))
 
         rows.append(
             (

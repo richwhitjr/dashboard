@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException
 from config import DATABASE_PATH
 from database import get_db_connection, get_write_db
 from models import ClaudeSessionCreate, ClaudeSessionUpdate
+from routers.changes import bump
 from utils.safe_sql import safe_update_query
 
 SESSION_ALLOWED_COLUMNS = {"title", "summary", "preview"}
@@ -273,4 +274,5 @@ def create_note_from_session(session_id: int):
 
         db.commit()
 
+    bump("notes")
     return result

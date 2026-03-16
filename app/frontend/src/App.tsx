@@ -8,7 +8,10 @@ import { KeyboardHelp } from './components/KeyboardHelp';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { UndoToast, getUndoTrigger } from './components/UndoToast';
 import { IssueDiscoveryOverlay, type DiscoveryPhase } from './components/IssueDiscoveryOverlay';
+import { RecentPagesOverlay } from './components/RecentPagesOverlay';
 import { useSync, useSetupStatus, useConnectors, useAuthStatus } from './api/hooks';
+import { useChangeTracker } from './hooks/useChangeTracker';
+import { usePageHistory } from './hooks/usePageHistory';
 import { BriefingPage } from './pages/BriefingPage';
 import './styles/tufte.css';
 
@@ -62,9 +65,13 @@ function AppContent() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [discoveryPhase, setDiscoveryPhase] = useState<DiscoveryPhase>('hidden');
+  const [recentPagesOpen, setRecentPagesOpen] = useState(false);
+  const [recentPagesIndex, setRecentPagesIndex] = useState(1);
   const isClaudePage = location.pathname === '/claude';
   const isSetupPage = location.pathname === '/setup';
 
+  useChangeTracker();
+  const pageHistory = usePageHistory();
   const { data: connectors } = useConnectors();
   const { data: authData } = useAuthStatus();
   const claudeEnabled = (() => {
@@ -90,6 +97,27 @@ function AppContent() {
       }
     },
     suppressWhen: searchOpen || helpOpen || discoveryPhase === 'reviewing',
+    pageHistory,
+    recentPagesOpen,
+    recentPagesIndex,
+    onRecentPagesOpen: (index: number) => {
+      setRecentPagesIndex(index);
+      setRecentPagesOpen(true);
+    },
+    onRecentPagesNext: () => {
+      setRecentPagesIndex(i => Math.min(i + 1, pageHistory.length - 1));
+    },
+    onRecentPagesPrev: () => {
+      setRecentPagesIndex(i => Math.max(i, 1) - 1);
+    },
+    onRecentPagesCommit: () => {
+      const target = pageHistory[recentPagesIndex];
+      setRecentPagesOpen(false);
+      if (target) navigate(target);
+    },
+    onRecentPagesClose: () => {
+      setRecentPagesOpen(false);
+    },
   });
 
   // Setup page gets full-width layout without sidebar
@@ -154,6 +182,7 @@ function AppContent() {
         onHelpOpen={() => { setSearchOpen(false); setHelpOpen(true); }}
       />
       <KeyboardHelp isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
+      <RecentPagesOverlay isOpen={recentPagesOpen} history={pageHistory} selectedIndex={recentPagesIndex} />
       <UndoToast />
       {isFetching > 0 && (
         <div className="global-fetch-indicator" aria-label="Loading data">

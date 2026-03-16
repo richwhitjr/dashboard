@@ -36,6 +36,7 @@ from routers import (
     auth,
     briefing,
     calendar_api,
+    changes,
     claude,
     claude_sessions,
     dashboard,
@@ -71,7 +72,7 @@ app = FastAPI(title="Personal Dashboard")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"],
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type"],
 )
@@ -139,6 +140,7 @@ app.include_router(weather.router)
 app.include_router(status_context.router)
 app.include_router(memory.router)
 app.include_router(whatsapp.router)
+app.include_router(changes.router)
 
 # GraphQL knowledge graph API
 from graphql_api import graphql_app
@@ -219,6 +221,7 @@ def startup():
         except BaseException as e:
             log.error("[startup] %s FAILED after %.2fs: %s: %s", name, time.time() - t0, type(e).__name__, e)
             import traceback
+
             log.error("".join(traceback.format_exc()))
             sys.stdout.flush()
             sys.stderr.flush()
@@ -227,10 +230,12 @@ def startup():
     def _migrate_google_token():
         """Move .google_token.json from backend dir to DATA_DIR if needed."""
         from config import DATA_DIR
+
         old_path = Path(__file__).parent / ".google_token.json"
         new_path = DATA_DIR / ".google_token.json"
         if old_path.exists() and not new_path.exists():
             import shutil
+
             shutil.move(str(old_path), str(new_path))
             log.info("Migrated Google token from %s to %s", old_path, new_path)
 

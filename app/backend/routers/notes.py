@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from database import get_db_connection, get_write_db, rebuild_fts_table
 from models import NoteCreate, NoteUpdate
+from routers.changes import bump
 from utils.safe_sql import safe_update_query
 
 NOTE_ALLOWED_COLUMNS = {"text", "priority", "status", "person_id", "is_one_on_one", "due_date"}
@@ -213,6 +214,7 @@ def create_note(note: NoteCreate):
         row = db.execute("SELECT * FROM notes WHERE id = ?", (note_id,)).fetchone()
         result = _note_to_dict(db, row)
     rebuild_fts_table("fts_notes")
+    bump("notes")
     return result
 
 
@@ -259,6 +261,7 @@ def update_note(note_id: int, update: NoteUpdate):
         row = db.execute("SELECT * FROM notes WHERE id = ?", (note_id,)).fetchone()
         result = _note_to_dict(db, row)
     rebuild_fts_table("fts_notes")
+    bump("notes")
     return result
 
 
@@ -268,4 +271,5 @@ def delete_note(note_id: int):
         db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
         db.commit()
     rebuild_fts_table("fts_notes")
+    bump("notes")
     return {"ok": True}

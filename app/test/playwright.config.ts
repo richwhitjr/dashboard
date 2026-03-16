@@ -1,5 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
+const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:5173';
+
 export default defineConfig({
   testDir: './tests',
   timeout: 30_000,
@@ -9,7 +11,7 @@ export default defineConfig({
   workers: 1,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',

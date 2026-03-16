@@ -369,7 +369,9 @@ async def _chat_gemini(
                 if item.get("type") == "tool_result":
                     # Extract tool name from the ID (format: "gemini_{name}")
                     tool_use_id = item.get("tool_use_id", "")
-                    tool_name = tool_use_id.removeprefix("gemini_") if tool_use_id.startswith("gemini_") else tool_use_id
+                    tool_name = (
+                        tool_use_id.removeprefix("gemini_") if tool_use_id.startswith("gemini_") else tool_use_id
+                    )
                     # Parse content as JSON if possible, otherwise wrap as text
                     raw = item.get("content", "")
                     try:
@@ -380,7 +382,12 @@ async def _chat_gemini(
                         response_data = {"result": response_data}
                     gemini_parts.append(genai_types.Part.from_function_response(name=tool_name, response=response_data))
                 elif item.get("type") == "tool_use":
-                    gemini_parts.append(genai_types.Part.from_function_call(name=item["name"], args=item.get("input", {})))
+                    gemini_parts.append(
+                        genai_types.Part.from_function_call(
+                            name=item["name"],
+                            args=item.get("input", {}),
+                        )
+                    )
                 elif item.get("type") == "text" and item.get("text"):
                     gemini_parts.append(genai_types.Part.from_text(text=item["text"]))
             if gemini_parts:
@@ -436,7 +443,9 @@ async def _chat_gemini(
 
         if tool_calls:
             return ChatResponse(
-                text="\n".join(text_parts), tool_calls=tool_calls, stop_reason="tool_use",
+                text="\n".join(text_parts),
+                tool_calls=tool_calls,
+                stop_reason="tool_use",
                 _gemini_parts=list(result_parts),
             )
         return ChatResponse(text="\n".join(text_parts), stop_reason="end_turn")

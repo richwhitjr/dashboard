@@ -64,6 +64,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDef[] = [
   { keys: 'Escape', description: 'Close review', category: 'discovery' },
 
   // Overlays
+  { keys: 'Ctrl+Tab', description: 'Switch recent page', category: 'overlays' },
   { keys: '\u2318K', description: 'Search / command palette', category: 'overlays' },
   { keys: 'Tab (in \u2318K)', description: 'Quick create (issue/thought/note)', category: 'overlays' },
   { keys: '\u2318E (in \u2318K)', description: 'Toggle external search', category: 'overlays' },
@@ -99,6 +100,15 @@ interface UseKeyboardShortcutsOptions {
   onSync: () => void;
   onDiscoverIssues?: () => void;
   suppressWhen?: boolean;
+  // Recent pages (Ctrl+Tab)
+  pageHistory?: string[];
+  recentPagesOpen?: boolean;
+  recentPagesIndex?: number;
+  onRecentPagesOpen?: (index: number) => void;
+  onRecentPagesNext?: () => void;
+  onRecentPagesPrev?: () => void;
+  onRecentPagesCommit?: () => void;
+  onRecentPagesClose?: () => void;
 }
 
 export function useKeyboardShortcuts(opts: UseKeyboardShortcutsOptions) {
@@ -116,6 +126,21 @@ export function useKeyboardShortcuts(opts: UseKeyboardShortcutsOptions) {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
         o.onSearchOpen();
+        return;
+      }
+
+      // Ctrl+Tab / Ctrl+Shift+Tab: recent pages — works everywhere
+      if (e.ctrlKey && e.key === 'Tab' && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        if (o.recentPagesOpen) {
+          if (e.shiftKey) {
+            o.onRecentPagesPrev?.();
+          } else {
+            o.onRecentPagesNext?.();
+          }
+        } else if (o.pageHistory && o.pageHistory.length >= 2) {
+          o.onRecentPagesOpen?.(1);
+        }
         return;
       }
 
@@ -198,4 +223,19 @@ export function useKeyboardShortcuts(opts: UseKeyboardShortcutsOptions) {
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [location.pathname]);
+
+  // Ctrl keyup commits recent-page selection
+  useEffect(() => {
+    if (!opts.recentPagesOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Control') {
+        optsRef.current.onRecentPagesCommit?.();
+      }
+      if (e.key === 'Escape') {
+        optsRef.current.onRecentPagesClose?.();
+      }
+    };
+    document.addEventListener('keyup', handler);
+    return () => document.removeEventListener('keyup', handler);
+  }, [opts.recentPagesOpen]);
 }

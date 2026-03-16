@@ -1,4 +1,4 @@
-.PHONY: start stop restart backend frontend status logs app build dev run test test-headed test-setup lint fmt dmg release db-migrate db-upgrade db-downgrade db-current db-history db-revision whatsapp whatsapp-stop setup ship demo demo-seed demo-backend demo-frontend demo-reset demo-capture
+.PHONY: start stop restart backend frontend status logs app build dev run test test-headed test-setup test-seed test-servers-start test-servers-stop test-status test-logs test-clean lint fmt dmg release db-migrate db-upgrade db-downgrade db-current db-history db-revision whatsapp whatsapp-stop setup ship demo demo-seed demo-backend demo-frontend demo-reset demo-capture
 
 BACKEND_DIR = app/backend
 FRONTEND_DIR = app/frontend
@@ -125,18 +125,72 @@ dmg:
 release:
 	@./scripts/release.sh $(VERSION) $(NOTES)
 
-# --- Tests (Playwright) ---
+# --- Tests (Playwright, self-contained on isolated ports) ---
 
-test:
-	@curl -sf http://localhost:5173 > /dev/null 2>&1 || (echo "Dev servers not running. Run 'make dev' first." && exit 1)
-	@cd app/test && npx playwright test
+TEST_BACKEND_PORT = 8001
+TEST_FRONTEND_PORT = 5174
+TEST_DEMO_DIR = $(PWD)/demo/data-test
 
-test-headed:
-	@curl -sf http://localhost:5173 > /dev/null 2>&1 || (echo "Dev servers not running. Run 'make dev' first." && exit 1)
-	@cd app/test && npx playwright test --headed
+test: venv
+	@$(MAKE) test-seed
+	@$(MAKE) test-servers-start
+	@cd app/test && PLAYWRIGHT_BASE_URL=http://localhost:$(TEST_FRONTEND_PORT) npx playwright test --project=chromium; \
+		EXIT_CODE=$$?; \
+		$(MAKE) -C $(CURDIR) test-servers-stop; \
+		exit $$EXIT_CODE
+
+test-headed: venv
+	@$(MAKE) test-seed
+	@$(MAKE) test-servers-start
+	@cd app/test && PLAYWRIGHT_BASE_URL=http://localhost:$(TEST_FRONTEND_PORT) npx playwright test --project=chromium --headed; \
+		EXIT_CODE=$$?; \
+		$(MAKE) -C $(CURDIR) test-servers-stop; \
+		exit $$EXIT_CODE
 
 test-setup:
 	@cd app/test && npm install && npx playwright install chromium
+
+test-seed:
+	@echo "Seeding test data..."
+	@rm -rf $(TEST_DEMO_DIR)
+	@cd $(BACKEND_DIR) && source venv/bin/activate && \
+		DASHBOARD_DATA_DIR=$(TEST_DEMO_DIR) DEMO_MODE=1 \
+		python ../../demo/seed.py
+
+test-servers-start:
+	@lsof -ti:$(TEST_BACKEND_PORT) | xargs kill -9 2>/dev/null || true
+	@lsof -ti:$(TEST_FRONTEND_PORT) | xargs kill -9 2>/dev/null || true
+	@cd $(BACKEND_DIR) && source venv/bin/activate && \
+		DEMO_MODE=1 DASHBOARD_DATA_DIR=$(TEST_DEMO_DIR) \
+		uvicorn main:app --port $(TEST_BACKEND_PORT) --reload > /tmp/dashboard-test-backend.log 2>&1 &
+	@sleep 2
+	@curl -sf http://localhost:$(TEST_BACKEND_PORT)/api/health > /dev/null \
+		&& echo "Test backend on :$(TEST_BACKEND_PORT)" \
+		|| (echo "Test backend failed — check /tmp/dashboard-test-backend.log" && exit 1)
+	@if [ ! -d $(FRONTEND_DIR)/node_modules ]; then cd $(FRONTEND_DIR) && npm install; fi
+	@cd $(FRONTEND_DIR) && BACKEND_PORT=$(TEST_BACKEND_PORT) npx vite --port $(TEST_FRONTEND_PORT) > /tmp/dashboard-test-frontend.log 2>&1 &
+	@sleep 2
+	@curl -sf http://localhost:$(TEST_FRONTEND_PORT) > /dev/null \
+		&& echo "Test frontend on :$(TEST_FRONTEND_PORT)" \
+		|| (echo "Test frontend failed — check /tmp/dashboard-test-frontend.log" && exit 1)
+
+test-servers-stop:
+	@lsof -ti:$(TEST_BACKEND_PORT) | xargs kill -9 2>/dev/null && echo "Test backend stopped" || true
+	@lsof -ti:$(TEST_FRONTEND_PORT) | xargs kill -9 2>/dev/null && echo "Test frontend stopped" || true
+
+test-status:
+	@echo "Test backend:  $$(lsof -ti:$(TEST_BACKEND_PORT) > /dev/null 2>&1 && echo 'running on :$(TEST_BACKEND_PORT)' || echo 'stopped')"
+	@echo "Test frontend: $$(lsof -ti:$(TEST_FRONTEND_PORT) > /dev/null 2>&1 && echo 'running on :$(TEST_FRONTEND_PORT)' || echo 'stopped')"
+
+test-logs:
+	@echo "=== Test Backend ===" && tail -20 /tmp/dashboard-test-backend.log 2>/dev/null || echo "No test backend logs"
+	@echo ""
+	@echo "=== Test Frontend ===" && tail -20 /tmp/dashboard-test-frontend.log 2>/dev/null || echo "No test frontend logs"
+
+test-clean:
+	@rm -rf $(TEST_DEMO_DIR)
+	@$(MAKE) test-servers-stop
+	@echo "Test environment cleaned up"
 
 # --- Database Migrations (Alembic) ---
 

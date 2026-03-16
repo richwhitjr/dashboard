@@ -4,12 +4,13 @@ Parallels drive.py but uses Microsoft Graph instead of Google Drive API.
 Reuses the same drive_files table since the schema is provider-agnostic.
 """
 
+from datetime import datetime, timedelta, timezone
+
 import httpx
 
 from config import DRIVE_SYNC_DAYS, DRIVE_SYNC_LIMIT
 from connectors.microsoft_auth import get_microsoft_token
 from database import batch_upsert, get_write_db
-from datetime import datetime, timedelta, timezone
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
@@ -30,10 +31,6 @@ def sync_onedrive_files() -> int:
 
     # Phase 1: Fetch from Graph API (no DB connection held)
     all_files: list[dict] = []
-    url: str | None = (
-        f"{GRAPH_BASE}/me/drive/recent"
-    )
-
     # /me/drive/recent doesn't support $filter, so we fetch and filter client-side
     # Also fetch from /me/drive/root/search to catch shared items
     for endpoint in [

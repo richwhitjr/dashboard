@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from database import get_db_connection, get_write_db, rebuild_fts_table
 from models import LongformAIEditRequest, LongformCommentCreate, LongformCreate, LongformUpdate
+from routers.changes import bump
 from utils.safe_sql import safe_update_query
 
 logger = logging.getLogger(__name__)
@@ -187,6 +188,7 @@ def create_post(post: LongformCreate):
         row = db.execute("SELECT * FROM longform_posts WHERE id = ?", (post_id,)).fetchone()
         result = _post_to_dict(db, row)
     rebuild_fts_table("fts_longform")
+    bump("longform")
     return result
 
 
@@ -247,6 +249,7 @@ def update_post(post_id: int, update: LongformUpdate):
         row = db.execute("SELECT * FROM longform_posts WHERE id = ?", (post_id,)).fetchone()
         result = _post_to_detail_dict(db, row)
     rebuild_fts_table("fts_longform")
+    bump("longform")
     return result
 
 
@@ -256,6 +259,7 @@ def delete_post(post_id: int):
         db.execute("DELETE FROM longform_posts WHERE id = ?", (post_id,))
         db.commit()
     rebuild_fts_table("fts_longform")
+    bump("longform")
     return {"ok": True}
 
 
@@ -279,6 +283,7 @@ def create_comment(post_id: int, comment: LongformCommentCreate):
         row = db.execute("SELECT * FROM longform_comments WHERE id = ?", (comment_id,)).fetchone()
         result = dict(row)
         result["is_thought"] = bool(result["is_thought"])
+    bump("longform")
     return result
 
 
@@ -294,6 +299,7 @@ def delete_comment(post_id: int, comment_id: int):
 
         db.execute("DELETE FROM longform_comments WHERE id = ?", (comment_id,))
         db.commit()
+    bump("longform")
     return {"ok": True}
 
 
@@ -468,4 +474,5 @@ def create_from_session(session_id: int):
         row = db.execute("SELECT * FROM longform_posts WHERE id = ?", (post_id,)).fetchone()
         result = _post_to_dict(db, row)
     rebuild_fts_table("fts_longform")
+    bump("longform")
     return result

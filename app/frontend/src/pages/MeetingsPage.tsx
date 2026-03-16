@@ -7,12 +7,23 @@ import { KeyboardHints } from '../components/shared/KeyboardHints';
 import { InfiniteScrollSentinel } from '../components/shared/InfiniteScrollSentinel';
 import { sanitizeHtml } from '../utils/sanitize';
 
+const TZ = 'America/New_York';
+
+function getHourInTZ(d: Date): number {
+  return parseInt(d.toLocaleTimeString('en-US', { hour: 'numeric', hour12: false, timeZone: TZ }), 10);
+}
+
+function getMinuteInTZ(d: Date): number {
+  return parseInt(d.toLocaleTimeString('en-US', { minute: '2-digit', timeZone: TZ }), 10);
+}
+
 function formatMeetingTime(startTime: string, endTime: string | null): string {
   const start = new Date(startTime);
   const time = start.toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
+    timeZone: TZ,
   });
   if (!endTime) return time;
   const end = new Date(endTime);
@@ -20,6 +31,7 @@ function formatMeetingTime(startTime: string, endTime: string | null): string {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
+    timeZone: TZ,
   });
   return `${time} – ${endStr}`;
 }
@@ -27,9 +39,10 @@ function formatMeetingTime(startTime: string, endTime: string | null): string {
 function formatMeetingDate(startTime: string): string {
   const d = new Date(startTime);
   const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const meetingDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const diffDays = Math.round((meetingDay.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  // Compare dates in ET so "Today"/"Tomorrow" labels are correct
+  const todayET = now.toLocaleDateString('en-CA', { timeZone: TZ }); // YYYY-MM-DD
+  const meetingET = d.toLocaleDateString('en-CA', { timeZone: TZ });
+  const diffDays = Math.round((new Date(meetingET).getTime() - new Date(todayET).getTime()) / (1000 * 60 * 60 * 24));
 
   let relative = '';
   if (diffDays === 0) relative = 'Today';
@@ -40,6 +53,7 @@ function formatMeetingDate(startTime: string): string {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
+    timeZone: TZ,
   });
 
   return relative ? `${relative}, ${dateStr}` : dateStr;
@@ -333,6 +347,7 @@ function MeetingRow({
                   hour: 'numeric',
                   minute: '2-digit',
                   hour12: true,
+                  timeZone: TZ,
                 })}
           </span>
           <span className={`collapse-icon ${expanded ? 'open' : ''}`}>
@@ -482,8 +497,8 @@ function DayCalendarView({
   let startHour = 8;
   let endHour = 18;
   for (const m of timedMeetings) {
-    const h = new Date(m.start_time).getHours();
-    const eh = m.end_time ? new Date(m.end_time).getHours() : h + 1;
+    const h = getHourInTZ(new Date(m.start_time));
+    const eh = m.end_time ? getHourInTZ(new Date(m.end_time)) : h + 1;
     if (h < startHour) startHour = Math.max(0, h);
     if (eh >= endHour) endHour = Math.min(24, eh + 1);
   }
@@ -496,8 +511,8 @@ function DayCalendarView({
   const positioned = timedMeetings.map(m => {
     const start = new Date(m.start_time);
     const end = m.end_time ? new Date(m.end_time) : new Date(start.getTime() + 30 * 60000);
-    const startMinutes = (start.getHours() - startHour) * 60 + start.getMinutes();
-    const endMinutes = (end.getHours() - startHour) * 60 + end.getMinutes();
+    const startMinutes = (getHourInTZ(start) - startHour) * 60 + getMinuteInTZ(start);
+    const endMinutes = (getHourInTZ(end) - startHour) * 60 + getMinuteInTZ(end);
     const top = (startMinutes / 60) * HOUR_HEIGHT;
     const height = Math.max(((endMinutes - startMinutes) / 60) * HOUR_HEIGHT, 24);
     const id = m.event_id || m.notes_id || m.granola_id || m.start_time;
@@ -506,7 +521,7 @@ function DayCalendarView({
   });
 
   // Now indicator
-  const nowMinutes = (now.getHours() - startHour) * 60 + now.getMinutes();
+  const nowMinutes = (getHourInTZ(now) - startHour) * 60 + getMinuteInTZ(now);
   const nowTop = (nowMinutes / 60) * HOUR_HEIGHT;
   const showNow = now.toDateString() === todayStr && nowMinutes >= 0 && nowMinutes <= (endHour - startHour) * 60;
 
@@ -766,7 +781,7 @@ function MeetingNotesList() {
                   <div className="dashboard-item-meta">
                     {formatMeetingDate(meeting.created_at)}
                     {' '}&middot;{' '}
-                    {new Date(meeting.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                    {new Date(meeting.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: TZ })}
                   </div>
                   {isExpanded && hasSummary && (
                     <div className="dashboard-item-expanded">

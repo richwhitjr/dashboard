@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from app_config import get_profile, get_prompt_context
 from database import get_db_connection, get_write_db, rebuild_fts_table
+from routers.changes import bump
 
 logger = logging.getLogger(__name__)
 
@@ -542,6 +543,7 @@ def accept_proposal(proposal_id: int, overrides: Optional[ProposalOverrides] = N
         row = db.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
 
     rebuild_fts_table("fts_issues")
+    bump("issues")
     return {"ok": True, "issue_id": issue_id, "issue": dict(row)}
 
 

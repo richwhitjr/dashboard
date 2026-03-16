@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from database import get_db_connection, get_write_db, rebuild_fts_table
 from models import IssueCreate, IssueUpdate
+from routers.changes import bump
 from utils.safe_sql import safe_update_query
 
 logger = logging.getLogger(__name__)
@@ -275,6 +276,7 @@ def create_issue(issue: IssueCreate):
         row = db.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
         result = _issue_to_dict(db, row)
     rebuild_fts_table("fts_issues")
+    bump("issues")
     return result
 
 
@@ -434,6 +436,7 @@ def update_issue(issue_id: int, update: IssueUpdate):
         row = db.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
         result = _issue_to_dict(db, row)
     rebuild_fts_table("fts_issues")
+    bump("issues")
     return result
 
 
@@ -443,4 +446,5 @@ def delete_issue(issue_id: int):
         db.execute("DELETE FROM issues WHERE id = ?", (issue_id,))
         db.commit()
     rebuild_fts_table("fts_issues")
+    bump("issues")
     return {"ok": True}

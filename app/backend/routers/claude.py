@@ -138,7 +138,6 @@ async def _kill_and_wait(pid: int, timeout: float = 3.0):
 
 async def _demo_claude_terminal(ws: WebSocket):
     """Simulated Claude Code terminal for demo mode."""
-    from demo_middleware import is_demo_mode
 
     # ANSI helpers
     GREEN = "\x1b[1;32m"
@@ -389,7 +388,7 @@ async def claude_terminal(ws: WebSocket, persona_id: int | None = Query(None)):
                     # Find end of the ╰ line
                     newline_after = banner_buf.find(b"\n", idx)
                     if newline_after >= 0:
-                        rest = banner_buf[newline_after + 1:]
+                        rest = banner_buf[newline_after + 1 :]
                         # Strip leading blank lines between banner and prompt
                         rest = rest.lstrip(b"\r\n")
                         banner_done = True

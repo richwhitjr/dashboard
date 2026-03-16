@@ -247,19 +247,20 @@ def get_priorities(refresh: bool = Query(False)):
         # Generate fresh priorities from Gemini
         context = _build_context(db)
 
-    # Check if input data has changed since last ranking
+    # Check if input data has changed since last ranking (skip on explicit refresh)
     ctx_hash = compute_items_hash([context])
-    with get_db_connection(readonly=True) as db:
-        row = db.execute("SELECT data_hash FROM cached_briefing_summary WHERE id = 1").fetchone()
-        if row and row["data_hash"] == ctx_hash:
-            logger.info("Priorities ranking cache hit (hash match)")
-            cached = _get_cached(db)
-            if cached is not None:
-                items = [item for item in cached if item.get("title") not in dismissed]
-                summary = get_cached_summary(db)
-                return {"items": items, "summary": summary}
+    if not refresh:
+        with get_db_connection(readonly=True) as db:
+            row = db.execute("SELECT data_hash FROM cached_briefing_summary WHERE id = 1").fetchone()
+            if row and row["data_hash"] == ctx_hash:
+                logger.info("Priorities ranking cache hit (hash match)")
+                cached = _get_cached(db)
+                if cached is not None:
+                    items = [item for item in cached if item.get("title") not in dismissed]
+                    summary = get_cached_summary(db)
+                    return {"items": items, "summary": summary}
 
-    logger.info("Priorities ranking cache miss — calling Gemini")
+    logger.info("Priorities ranking %s — calling Gemini", "refresh forced" if refresh else "cache miss")
     try:
         result = _call_gemini(context, list(dismissed))
     except Exception as e:
@@ -275,6 +276,35 @@ def get_priorities(refresh: bool = Query(False)):
 
     items = [item for item in items if item.get("title") not in dismissed]
     return {"items": items, "summary": summary}
+
+
+def rerank_priorities() -> bool:
+    """Re-generate priorities + summary if underlying data has changed.
+
+    Called by post-sync reranking. Returns True if cache was refreshed.
+    """
+    with get_db_connection(readonly=True) as db:
+        dismissed = {r["title"] for r in db.execute("SELECT title FROM dismissed_priorities").fetchall()}
+        context = _build_context(db)
+
+    ctx_hash = compute_items_hash([context])
+
+    with get_db_connection(readonly=True) as db:
+        row = db.execute("SELECT data_hash FROM cached_briefing_summary WHERE id = 1").fetchone()
+        if row and row["data_hash"] == ctx_hash:
+            return False  # data unchanged
+
+    logger.info("Priorities/summary cache stale — calling AI")
+    try:
+        result = _call_gemini(context, list(dismissed))
+    except Exception as e:
+        logger.error("Priorities rerank failed: %s", e)
+        return False
+
+    with get_write_db() as db:
+        _save_cache(db, result["items"], result["summary"], data_hash=ctx_hash)
+
+    return True
 
 
 @router.post("/dismiss")

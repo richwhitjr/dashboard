@@ -42,6 +42,7 @@ function formatEventTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',
+    timeZone: 'America/New_York',
   });
 }
 

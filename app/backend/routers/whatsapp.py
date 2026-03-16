@@ -40,6 +40,7 @@ def _get_or_create_webhook_token() -> str:
     _WEBHOOK_TOKEN_PATH.write_text(token)
     import os
     import stat
+
     os.chmod(_WEBHOOK_TOKEN_PATH, stat.S_IRUSR | stat.S_IWUSR)  # 0600
     return token
 

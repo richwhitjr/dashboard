@@ -13,7 +13,7 @@ from pathlib import Path
 
 # --- Environment setup (must be before any backend imports) ---
 DEMO_DIR = Path(__file__).resolve().parent
-DATA_DIR = DEMO_DIR / "data"
+DATA_DIR = Path(os.environ.get("DASHBOARD_DATA_DIR", str(DEMO_DIR / "data")))
 REPO_ROOT = DEMO_DIR.parent
 
 os.environ["DASHBOARD_DATA_DIR"] = str(DATA_DIR)

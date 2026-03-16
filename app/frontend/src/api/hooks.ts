@@ -190,7 +190,11 @@ export function useRefreshPriorities() {
     mutationFn: () => api.get<PrioritiesData>('/priorities?refresh=true'),
     onSuccess: (data) => {
       qc.setQueryData<PrioritiesData>(['priorities'], data);
-      qc.invalidateQueries({ queryKey: ['briefing'] });
+      // Immediately update briefing cache with fresh summary + attention items
+      qc.setQueryData<BriefingData>(['briefing'], (old) => {
+        if (!old) return old;
+        return { ...old, summary: data.summary ?? null, attention_items: data.items };
+      });
     },
   });
 }

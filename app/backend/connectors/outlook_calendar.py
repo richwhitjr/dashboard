@@ -225,10 +225,7 @@ def create_outlook_event(
     if location:
         event_body["location"] = {"displayName": location}
     if attendees:
-        event_body["attendees"] = [
-            {"emailAddress": {"address": email}, "type": "required"}
-            for email in attendees
-        ]
+        event_body["attendees"] = [{"emailAddress": {"address": email}, "type": "required"} for email in attendees]
 
     resp = httpx.post(f"{GRAPH_BASE}/me/events", headers=headers, json=event_body, timeout=30)
     resp.raise_for_status()

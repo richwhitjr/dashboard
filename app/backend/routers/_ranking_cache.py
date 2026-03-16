@@ -59,6 +59,7 @@ def rerank_stale_sources():
     from routers.gmail import rerank_email
     from routers.news import rerank_news
     from routers.notion_api import rerank_notion
+    from routers.priorities import rerank_priorities
     from routers.ramp_api import rerank_ramp
     from routers.slack_api import rerank_slack
 
@@ -69,6 +70,7 @@ def rerank_stale_sources():
         ("news", rerank_news),
         ("drive", rerank_drive),
         ("ramp", rerank_ramp),
+        ("priorities", rerank_priorities),
     ]
 
     updated = []

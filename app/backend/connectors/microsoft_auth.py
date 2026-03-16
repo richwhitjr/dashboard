@@ -50,8 +50,7 @@ def _get_msal_app() -> msal.ConfidentialClientApplication:
     creds = _get_client_credentials()
     if not creds:
         raise FileNotFoundError(
-            "No Microsoft credentials found. Add MICROSOFT_CLIENT_ID and "
-            "MICROSOFT_CLIENT_SECRET in Settings."
+            "No Microsoft credentials found. Add MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET in Settings."
         )
     client_id, client_secret, tenant_id = creds
     authority = f"https://login.microsoftonline.com/{tenant_id}"
@@ -77,9 +76,7 @@ def get_microsoft_token() -> str:
                 refresh_token = token_data.get("refresh_token")
                 if refresh_token:
                     app = _get_msal_app()
-                    result = app.acquire_token_by_refresh_token(
-                        refresh_token, scopes=MICROSOFT_SCOPES
-                    )
+                    result = app.acquire_token_by_refresh_token(refresh_token, scopes=MICROSOFT_SCOPES)
                     if "access_token" in result:
                         _save_token(result)
                         return result["access_token"]
@@ -91,9 +88,7 @@ def get_microsoft_token() -> str:
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning("Failed to read Microsoft token file: %s", e)
 
-    raise FileNotFoundError(
-        "No Microsoft token found. Click Authenticate in Settings to connect Microsoft 365."
-    )
+    raise FileNotFoundError("No Microsoft token found. Click Authenticate in Settings to connect Microsoft 365.")
 
 
 def run_oauth_flow() -> dict:
@@ -114,9 +109,7 @@ def run_oauth_flow() -> dict:
 
     auth_url = flow.get("auth_uri")
     if not auth_url:
-        raise RuntimeError(
-            f"Failed to initiate Microsoft auth flow: {flow.get('error_description', 'unknown error')}"
-        )
+        raise RuntimeError(f"Failed to initiate Microsoft auth flow: {flow.get('error_description', 'unknown error')}")
 
     # Capture the auth response via a temporary local HTTP server
     auth_response = {}
@@ -134,8 +127,7 @@ def run_oauth_flow() -> dict:
             self.end_headers()
             if "error" in auth_response:
                 self.wfile.write(
-                    b"<html><body><h2>Authentication failed.</h2>"
-                    b"<p>You can close this window.</p></body></html>"
+                    b"<html><body><h2>Authentication failed.</h2><p>You can close this window.</p></body></html>"
                 )
             else:
                 self.wfile.write(

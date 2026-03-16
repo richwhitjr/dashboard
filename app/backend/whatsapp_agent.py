@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 DASHBOARD_BASE = "http://localhost:8000"
 MAX_HISTORY = 50  # rolling window of messages
-MAX_TOOL_ROUNDS = 10  # prevent infinite tool loops
+MAX_TOOL_ROUNDS = 15  # prevent infinite tool loops
 
 TOOLS = [
     {
@@ -139,17 +139,17 @@ TOOLS = [
             "Slack, calendar, GitHub PRs, Drive files, Ramp transactions, notes, issues, and meetings. "
             "Use standard GraphQL syntax. Only queries are allowed (no mutations). Example queries:\n"
             '  { person(id: "alice-smith") { name title emails { subject date } slackMessages { text ts } } }\n'
-            '  { people(isCoworker: true) { name title directReports { name } } }\n'
+            "  { people(isCoworker: true) { name title directReports { name } } }\n"
             '  { search(query: "quarterly review") { people { name } notes { text } emails { subject } total } }\n'
             '  { notes(status: "open") { text priority people { name } } }\n'
             '  { issues(status: "open") { title priority tags } }\n'
             '  { calendarEvents(fromDate: "2026-03-12") { summary startTime attendees } }\n'
-            '  { emails(limit: 10) { subject fromName date } }\n'
-            '  { slackMessages(limit: 10) { text channelName userName ts } }\n'
-            '  { driveFiles(limit: 10) { name modifiedTime webViewLink } }\n'
+            "  { emails(limit: 10) { subject fromName date } }\n"
+            "  { slackMessages(limit: 10) { text channelName userName ts } }\n"
+            "  { driveFiles(limit: 10) { name modifiedTime webViewLink } }\n"
             '  { githubPrs(state: "open") { title author state repo } }\n'
-            '  { rampTransactions(limit: 10) { amount merchantName transactionDate } }\n'
-            '  { news(limit: 10) { title url source snippet } }\n'
+            "  { rampTransactions(limit: 10) { amount merchantName transactionDate } }\n"
+            "  { news(limit: 10) { title url source snippet } }\n"
             '  { longformPosts(status: "draft") { title wordCount createdAt } }\n'
         ),
         "input_schema": {
@@ -206,7 +206,9 @@ TOOLS = [
             "properties": {
                 "text": {
                     "type": "string",
-                    "description": "Note text. Prefix [t] for thought, [1] for 1:1 agenda item. Use @Name to mention people.",
+                    "description": (
+                        "Note text. Prefix [t] for thought, [1] for 1:1 agenda item. Use @Name to mention people."
+                    ),
                 },
                 "person_id": {
                     "type": "string",
@@ -296,8 +298,7 @@ TOOLS = [
     {
         "name": "update_issue",
         "description": (
-            "Update or close an issue. Set status to 'done' to close it. "
-            "Use get_issues first to find the issue ID."
+            "Update or close an issue. Set status to 'done' to close it. Use get_issues first to find the issue ID."
         ),
         "input_schema": {
             "type": "object",
@@ -423,9 +424,7 @@ async def _execute_tool(name: str, tool_input: dict) -> str:
                 gql_query = tool_input.get("query", "").strip()
                 # Block mutations — only allow read-only queries
                 if gql_query.lstrip().lower().startswith("mutation"):
-                    return json.dumps(
-                        {"error": "Mutations are not allowed via WhatsApp. Read-only queries only."}
-                    )
+                    return json.dumps({"error": "Mutations are not allowed via WhatsApp. Read-only queries only."})
                 body = {"query": gql_query}
                 if "variables" in tool_input:
                     body["variables"] = tool_input["variables"]
@@ -440,8 +439,20 @@ async def _execute_tool(name: str, tool_input: dict) -> str:
                 if ";" in sql:
                     return json.dumps({"error": "Multiple statements are not allowed"})
                 # Block dangerous keywords that could modify data or exfiltrate
-                _blocked = {"INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE",
-                            "ATTACH", "DETACH", "PRAGMA", "REPLACE", "GRANT", "EXEC"}
+                _blocked = {
+                    "INSERT",
+                    "UPDATE",
+                    "DELETE",
+                    "DROP",
+                    "ALTER",
+                    "CREATE",
+                    "ATTACH",
+                    "DETACH",
+                    "PRAGMA",
+                    "REPLACE",
+                    "GRANT",
+                    "EXEC",
+                }
                 sql_words = set(re.findall(r"[A-Z]+", sql_upper))
                 blocked_found = sql_words & _blocked
                 if blocked_found:
@@ -510,6 +521,7 @@ async def _execute_tool(name: str, tool_input: dict) -> str:
             elif name == "add_one_on_one_note":
                 person_id = tool_input["person_id"]
                 from datetime import date
+
                 body = {
                     "meeting_date": tool_input.get("meeting_date", date.today().isoformat()),
                     "content": tool_input["content"],
@@ -543,6 +555,7 @@ def _load_claude_md() -> str:
         content = claude_md_path.read_text()
         # Extract only the "Database Tables" section for SQL reference
         import re as _re
+
         match = _re.search(
             r"(## Database Tables\n.*?)(?=\n## |\Z)",
             content,
@@ -597,9 +610,7 @@ def _build_system_prompt() -> str:
         f"You are a personal assistant chatting via WhatsApp {ctx}. "
         "You have access to tools that query and update the user's personal dashboard — a centralized system "
         "that aggregates calendar, email, Slack, Notion, Google Drive, GitHub, Ramp, notes, issues, "
-        "people directory, meetings, news, and more."
-        + (f" {team_info}" if team_info else "")
-        + "\n\n"
+        "people directory, meetings, news, and more." + (f" {team_info}" if team_info else "") + "\n\n"
         "CRITICAL RULES — Data Access:\n"
         "1. NEVER guess, assume, or fabricate information about the user, their team, schedule, "
         "emails, messages, or any data. ALWAYS use your tools to look it up first.\n"
@@ -618,6 +629,15 @@ def _build_system_prompt() -> str:
         "7. When creating items, confirm what you created with key details (ID, title, linked person).\n"
         "8. When closing items, use get_notes or get_issues first to find the correct ID, then update.\n"
         "9. NEVER include raw API keys, tokens, passwords, or secrets in your responses.\n"
+        "10. For WRITE operations (create_issue, create_note, create_longform, update_note, update_issue): "
+        "ACT DIRECTLY. Do NOT over-research by looking up people, searching emails, or gathering context "
+        "before creating/updating. The user said what they want — just do it. Use @Name in titles to link "
+        "people automatically. Only look things up first if the user's request is ambiguous or you need "
+        "an ID to update an existing item.\n"
+        "11. NEVER claim you created, updated, or deleted something without actually calling the "
+        "corresponding tool (create_issue, create_note, update_note, update_issue, etc.). "
+        "If you did not make a tool call, you did NOT perform the action — do not fabricate results. "
+        "You MUST use tools for all write operations.\n"
         "\n"
         "IMPORTANT WhatsApp formatting rules:\n"
         "- Keep responses concise and mobile-friendly\n"
