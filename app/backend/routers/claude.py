@@ -358,43 +358,13 @@ async def claude_terminal(ws: WebSocket, persona_id: int | None = Query(None)):
     set_size(24, 80)
 
     async def pty_to_ws():
-        """Read from PTY, send to WebSocket — strip Claude Code startup banner."""
-        banner_buf = b""
-        banner_done = False
-        BANNER_END = "\u2570".encode("utf-8")  # ╰ character, last line of banner box
-        MAX_BANNER_SIZE = 8192  # Safety: give up filtering after 8KB
-
+        """Read from PTY, send to WebSocket."""
         try:
             while True:
                 data = await loop.run_in_executor(None, os.read, fd, 4096)
                 if not data:
                     break
-
-                if banner_done:
-                    await ws.send_bytes(data)
-                    continue
-
-                banner_buf += data
-
-                # Safety valve: if buffer is too large, forward everything
-                if len(banner_buf) > MAX_BANNER_SIZE:
-                    banner_done = True
-                    await ws.send_bytes(banner_buf)
-                    banner_buf = b""
-                    continue
-
-                idx = banner_buf.find(BANNER_END)
-                if idx >= 0:
-                    # Find end of the ╰ line
-                    newline_after = banner_buf.find(b"\n", idx)
-                    if newline_after >= 0:
-                        rest = banner_buf[newline_after + 1 :]
-                        # Strip leading blank lines between banner and prompt
-                        rest = rest.lstrip(b"\r\n")
-                        banner_done = True
-                        if rest:
-                            await ws.send_bytes(rest)
-                        banner_buf = b""
+                await ws.send_bytes(data)
         except (OSError, WebSocketDisconnect):
             pass
 
