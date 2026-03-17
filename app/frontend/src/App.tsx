@@ -37,6 +37,7 @@ const SetupPage = lazy(() => import('./pages/SetupPage').then(m => ({ default: m
 
 const DrivePage = lazy(() => import('./pages/DrivePage').then(m => ({ default: m.DrivePage })));
 const PeoplePage = lazy(() => import('./pages/PeoplePage').then(m => ({ default: m.PeoplePage })));
+const AgentPage = lazy(() => import('./pages/AgentPage').then(m => ({ default: m.AgentPage })));
 
 
 const queryClient = new QueryClient({
@@ -164,6 +165,7 @@ function AppContent() {
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/personas" element={<Navigate to="/claude" replace />} />
 
+              <Route path="/agent" element={<AgentPage />} />
               <Route path="/claude" element={null} />
             </Routes>
             {claudeEnabled && (

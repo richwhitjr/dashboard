@@ -1,4 +1,4 @@
-.PHONY: start stop restart backend frontend status logs app build dev run test test-headed test-setup test-seed test-servers-start test-servers-stop test-status test-logs test-clean lint fmt dmg release db-migrate db-upgrade db-downgrade db-current db-history db-revision whatsapp whatsapp-stop setup ship demo demo-seed demo-backend demo-frontend demo-reset demo-capture
+.PHONY: start stop restart backend frontend status logs app build dev run test test-headed test-setup test-seed test-servers-start test-servers-stop test-status test-logs test-clean lint fmt blft dmg release db-migrate db-upgrade db-downgrade db-current db-history db-revision whatsapp whatsapp-stop setup ship demo demo-seed demo-backend demo-frontend demo-reset demo-capture
 
 BACKEND_DIR = app/backend
 FRONTEND_DIR = app/frontend
@@ -114,6 +114,8 @@ fmt:
 	@echo ""
 	@echo "=== TypeScript (eslint) ==="
 	@cd $(FRONTEND_DIR) && npx eslint --fix .
+
+blft: build lint fmt test
 
 # --- DMG packaging ---
 

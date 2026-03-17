@@ -33,6 +33,7 @@ from starlette.responses import Response
 from connectors.registry import init_registry
 from database import init_db
 from routers import (
+    agent_chat,
     auth,
     briefing,
     calendar_api,
@@ -140,6 +141,7 @@ app.include_router(weather.router)
 app.include_router(status_context.router)
 app.include_router(memory.router)
 app.include_router(whatsapp.router)
+app.include_router(agent_chat.router)
 app.include_router(changes.router)
 
 # GraphQL knowledge graph API

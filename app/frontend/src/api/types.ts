@@ -1015,3 +1015,28 @@ export interface BriefingData {
   };
   overnight: OvernightItem[];
 }
+
+// --- Agent Chat ---
+
+export interface AgentConversation {
+  id: number;
+  title: string;
+  saved: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentToolCall {
+  name: string;
+  input: Record<string, unknown>;
+  result?: string;
+}
+
+export interface AgentMessage {
+  id: number;
+  conversation_id: number;
+  role: 'user' | 'assistant';
+  content: string;
+  tool_calls: AgentToolCall[];
+  created_at: string;
+}

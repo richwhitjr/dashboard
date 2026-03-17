@@ -160,6 +160,7 @@ export function Sidebar() {
         <div className="sidebar-section-label">tools</div>
         <nav>
           <NavLink to="/people">People</NavLink>
+          <NavLink to="/agent">Agent</NavLink>
           {active.has('claude_code') && <>
             <NavLink to="/claude" end>Claude</NavLink>
             {onClaudePage && personas?.filter(p => !p.is_default).map(p => (

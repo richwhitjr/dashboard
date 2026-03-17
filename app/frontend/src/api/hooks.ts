@@ -62,6 +62,8 @@ import type {
   MemorySummary,
   WhatsAppStatus,
   WhatsAppQR,
+  AgentConversation,
+  AgentMessage,
 } from './types';
 
 export function usePeople(filters?: { is_coworker?: boolean; group?: string }) {
@@ -1791,5 +1793,65 @@ export function useWhatsAppQR(enabled = false) {
     queryFn: () => api.get<WhatsAppQR>('/whatsapp/qr'),
     refetchInterval: 3000,
     enabled,
+  });
+}
+
+// --- Agent Chat ---
+
+export function useAgentConversations() {
+  return useQuery({
+    queryKey: ['agent-conversations'],
+    queryFn: () => api.get<AgentConversation[]>('/agent/conversations?saved=1'),
+  });
+}
+
+export function useAgentMessages(conversationId: number | null) {
+  return useQuery({
+    queryKey: ['agent-messages', conversationId],
+    queryFn: () => api.get<AgentMessage[]>(`/agent/conversations/${conversationId}/messages`),
+    enabled: conversationId !== null,
+  });
+}
+
+export function useCreateAgentConversation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (title?: string) =>
+      api.post<AgentConversation>('/agent/conversations', title ? { title } : {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['agent-conversations'] });
+    },
+  });
+}
+
+export function useUpdateAgentConversation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, title }: { id: number; title: string }) =>
+      api.patch<AgentConversation>(`/agent/conversations/${id}`, { title }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['agent-conversations'] });
+    },
+  });
+}
+
+export function useDeleteAgentConversation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.delete(`/agent/conversations/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['agent-conversations'] });
+    },
+  });
+}
+
+export function useSaveAgentConversation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, title }: { id: number; title?: string }) =>
+      api.post<AgentConversation>(`/agent/conversations/${id}/save`, title ? { title } : {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['agent-conversations'] });
+    },
   });
 }
