@@ -1769,33 +1769,49 @@ export function useSearchMemory(q: string) {
 
 const ALL_ITEMS_PAGE_SIZE = 30;
 
-export function useAllEmails() {
+export interface AllTabSearchParams {
+  q?: string;
+  author?: string;
+  from_date?: string;
+  to_date?: string;
+}
+
+function buildAllQS(pageParam: number, params: AllTabSearchParams, authorKey = 'author'): string {
+  const qs = new URLSearchParams({ offset: String(pageParam), limit: String(ALL_ITEMS_PAGE_SIZE) });
+  if (params.q) qs.set('q', params.q);
+  if (params.author) qs.set(authorKey, params.author);
+  if (params.from_date) qs.set('from_date', params.from_date);
+  if (params.to_date) qs.set('to_date', params.to_date);
+  return qs.toString();
+}
+
+export function useAllEmails(params: AllTabSearchParams = {}) {
   return useInfiniteQuery({
-    queryKey: ['all-emails'],
+    queryKey: ['all-emails', params],
     queryFn: ({ pageParam = 0 }) =>
-      api.get<PaginatedResponse<Email>>(`/gmail/all?offset=${pageParam}&limit=${ALL_ITEMS_PAGE_SIZE}`),
+      api.get<PaginatedResponse<Email>>(`/gmail/all?${buildAllQS(pageParam, params, 'from_email')}`),
     initialPageParam: 0,
     getNextPageParam: (lastPage) =>
       lastPage.has_more ? lastPage.offset + lastPage.limit : undefined,
   });
 }
 
-export function useAllSlack() {
+export function useAllSlack(params: AllTabSearchParams = {}) {
   return useInfiniteQuery({
-    queryKey: ['all-slack'],
+    queryKey: ['all-slack', params],
     queryFn: ({ pageParam = 0 }) =>
-      api.get<PaginatedResponse<SlackMessage>>(`/slack/all?offset=${pageParam}&limit=${ALL_ITEMS_PAGE_SIZE}`),
+      api.get<PaginatedResponse<SlackMessage>>(`/slack/all?${buildAllQS(pageParam, params)}`),
     initialPageParam: 0,
     getNextPageParam: (lastPage) =>
       lastPage.has_more ? lastPage.offset + lastPage.limit : undefined,
   });
 }
 
-export function useAllNotion() {
+export function useAllNotion(params: AllTabSearchParams = {}) {
   return useInfiniteQuery({
-    queryKey: ['all-notion'],
+    queryKey: ['all-notion', params],
     queryFn: ({ pageParam = 0 }) =>
-      api.get<PaginatedResponse<NotionPage>>(`/notion/all?offset=${pageParam}&limit=${ALL_ITEMS_PAGE_SIZE}`),
+      api.get<PaginatedResponse<NotionPage>>(`/notion/all?${buildAllQS(pageParam, params)}`),
     initialPageParam: 0,
     getNextPageParam: (lastPage) =>
       lastPage.has_more ? lastPage.offset + lastPage.limit : undefined,
@@ -1810,22 +1826,22 @@ export function useObsidianVault() {
   });
 }
 
-export function useAllObsidian() {
+export function useAllObsidian(params: AllTabSearchParams = {}) {
   return useInfiniteQuery({
-    queryKey: ['all-obsidian'],
+    queryKey: ['all-obsidian', params],
     queryFn: ({ pageParam = 0 }) =>
-      api.get<PaginatedResponse<ObsidianNote>>(`/obsidian/all?offset=${pageParam}&limit=${ALL_ITEMS_PAGE_SIZE}`),
+      api.get<PaginatedResponse<ObsidianNote>>(`/obsidian/all?${buildAllQS(pageParam, params)}`),
     initialPageParam: 0,
     getNextPageParam: (lastPage) =>
       lastPage.has_more ? lastPage.offset + lastPage.limit : undefined,
   });
 }
 
-export function useAllGitHub() {
+export function useAllGitHub(params: AllTabSearchParams = {}) {
   return useInfiniteQuery({
-    queryKey: ['all-github'],
+    queryKey: ['all-github', params],
     queryFn: ({ pageParam = 0 }) =>
-      api.get<PaginatedResponse<GitHubPullRequest>>(`/github/all?offset=${pageParam}&limit=${ALL_ITEMS_PAGE_SIZE}`),
+      api.get<PaginatedResponse<GitHubPullRequest>>(`/github/all?${buildAllQS(pageParam, params)}`),
     initialPageParam: 0,
     getNextPageParam: (lastPage) =>
       lastPage.has_more ? lastPage.offset + lastPage.limit : undefined,
@@ -1854,11 +1870,11 @@ export function useRefreshPrioritizedGitHub() {
   });
 }
 
-export function useAllDriveFiles() {
+export function useAllDriveFiles(params: AllTabSearchParams = {}) {
   return useInfiniteQuery({
-    queryKey: ['all-drive'],
+    queryKey: ['all-drive', params],
     queryFn: ({ pageParam = 0 }) =>
-      api.get<PaginatedResponse<DriveFile>>(`/drive/all?offset=${pageParam}&limit=${ALL_ITEMS_PAGE_SIZE}`),
+      api.get<PaginatedResponse<DriveFile>>(`/drive/all?${buildAllQS(pageParam, params)}`),
     initialPageParam: 0,
     getNextPageParam: (lastPage) =>
       lastPage.has_more ? lastPage.offset + lastPage.limit : undefined,

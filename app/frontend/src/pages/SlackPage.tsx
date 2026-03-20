@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { usePrioritizedSlack, useRefreshPrioritizedSlack, useAllSlack } from '../api/hooks';
+import { usePrioritizedSlack, useRefreshPrioritizedSlack, useAllSlack, type AllTabSearchParams } from '../api/hooks';
 import { TimeAgo } from '../components/shared/TimeAgo';
 import { PrioritizedSourceList, ScoreBadge } from '../components/shared/PrioritizedSourceList';
 import { cleanSlackText } from '../utils/cleanSlackText';
@@ -9,8 +9,9 @@ export function SlackPage() {
   const [days, setDays] = useState(7);
   const { data, isLoading } = usePrioritizedSlack(days);
   const refresh = useRefreshPrioritizedSlack(days);
+  const [allSearchParams, setAllSearchParams] = useState<AllTabSearchParams>({});
 
-  const allQuery = useAllSlack();
+  const allQuery = useAllSlack(allSearchParams);
   const allMessages = useMemo(() => allQuery.data?.pages.flatMap(p => p.items) ?? [], [allQuery.data]);
   const allTotal = allQuery.data?.pages[0]?.total ?? 0;
 
@@ -62,6 +63,11 @@ export function SlackPage() {
         hasNextPage: !!allQuery.hasNextPage,
         isFetchingNextPage: allQuery.isFetchingNextPage,
         fetchNextPage: allQuery.fetchNextPage,
+        search: {
+          authorLabel: 'User',
+          hasDateFilter: true,
+          onParamsChange: setAllSearchParams,
+        },
         renderItem: (item) => {
           const msg = item as (typeof allMessages)[0];
           const cleaned = cleanSlackText(msg.text);

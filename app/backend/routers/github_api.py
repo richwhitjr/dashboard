@@ -91,16 +91,39 @@ def _filter_dismissed(items: list[dict]) -> list[dict]:
 def get_all_github_prs(
     offset: int = Query(0, ge=0),
     limit: int = Query(30, ge=1, le=100),
+    q: str | None = Query(None, description="Text search on title or author"),
+    author: str | None = Query(None, description="Filter by PR author"),
+    from_date: str | None = Query(None, description="ISO date string, e.g. 2026-01-01"),
+    to_date: str | None = Query(None, description="ISO date string, inclusive"),
 ):
-    """Return all synced GitHub PRs from local DB, newest first, with pagination."""
+    """Return all synced GitHub PRs from local DB, newest first, with pagination and optional search."""
     import json as _json
+
+    conditions: list[str] = []
+    params: list = []
+
+    if q:
+        like = f"%{q}%"
+        conditions.append("(title LIKE ? OR author LIKE ?)")
+        params.extend([like, like])
+    if author:
+        conditions.append("author LIKE ?")
+        params.append(f"%{author}%")
+    if from_date:
+        conditions.append("updated_at >= ?")
+        params.append(from_date)
+    if to_date:
+        conditions.append("updated_at <= ?")
+        params.append(to_date + "T23:59:59")
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
     with get_db_connection(readonly=True) as db:
         rows = db.execute(
-            "SELECT * FROM github_pull_requests ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-            (limit, offset),
+            f"SELECT * FROM github_pull_requests {where} ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+            params + [limit, offset],
         ).fetchall()
-        total = db.execute("SELECT COUNT(*) as c FROM github_pull_requests").fetchone()["c"]
+        total = db.execute(f"SELECT COUNT(*) as c FROM github_pull_requests {where}", params).fetchone()["c"]
 
     items = []
     for r in rows:

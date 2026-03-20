@@ -106,15 +106,74 @@ def _message_to_dict(msg: dict, include_body: bool = False) -> dict:
 def get_all_emails(
     offset: int = Query(0, ge=0),
     limit: int = Query(30, ge=1, le=100),
+    q: str | None = Query(None, description="Text search on subject, sender, snippet"),
+    from_email: str | None = Query(None, description="Filter by sender name or email"),
+    from_date: str | None = Query(None, description="ISO date string, e.g. 2026-01-01"),
+    to_date: str | None = Query(None, description="ISO date string, inclusive"),
 ):
-    """Return all synced emails, newest first, with pagination."""
+    """Return all synced emails, newest first, with pagination and optional search.
+
+    Date filtering uses Python-side RFC 2822 parsing since email dates are stored
+    as raw header strings (e.g. "Mon, 17 Mar 2026 14:32:45 -0700").
+    """
+    from datetime import datetime, timedelta, timezone
+    from email.utils import parsedate_to_datetime
+
+    conditions: list[str] = []
+    params: list = []
+
+    if q:
+        like = f"%{q}%"
+        conditions.append("(subject LIKE ? OR from_name LIKE ? OR snippet LIKE ?)")
+        params.extend([like, like, like])
+    if from_email:
+        like = f"%{from_email}%"
+        conditions.append("(from_name LIKE ? OR from_email LIKE ?)")
+        params.extend([like, like])
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
     with get_db_connection(readonly=True) as db:
-        rows = db.execute(
-            "SELECT id, thread_id, subject, snippet, from_name, from_email, date, is_unread "
-            "FROM emails ORDER BY date DESC LIMIT ? OFFSET ?",
-            (limit, offset),
-        ).fetchall()
-        total = db.execute("SELECT COUNT(*) as c FROM emails").fetchone()["c"]
+        if from_date or to_date:
+            # Fetch all text-matching rows, then filter by date in Python
+            # (email dates are RFC 2822 strings, not directly SQL-comparable as ISO dates)
+            all_rows = db.execute(
+                f"SELECT id, thread_id, subject, snippet, from_name, from_email, date, is_unread "
+                f"FROM emails {where} ORDER BY date DESC",
+                params,
+            ).fetchall()
+
+            from_dt = datetime.fromisoformat(from_date).replace(tzinfo=timezone.utc) if from_date else None
+            to_dt = (
+                (datetime.fromisoformat(to_date).replace(tzinfo=timezone.utc) + timedelta(days=1)) if to_date else None
+            )
+
+            filtered = []
+            for row in all_rows:
+                try:
+                    email_dt = parsedate_to_datetime(row["date"])
+                    if email_dt.tzinfo is None:
+                        email_dt = email_dt.replace(tzinfo=timezone.utc)
+                    else:
+                        email_dt = email_dt.astimezone(timezone.utc)
+                    if from_dt and email_dt < from_dt:
+                        continue
+                    if to_dt and email_dt >= to_dt:
+                        continue
+                    filtered.append(row)
+                except Exception:
+                    filtered.append(row)  # include rows with unparseable dates
+
+            total = len(filtered)
+            rows = filtered[offset : offset + limit]
+        else:
+            rows = db.execute(
+                f"SELECT id, thread_id, subject, snippet, from_name, from_email, date, is_unread "
+                f"FROM emails {where} ORDER BY date DESC LIMIT ? OFFSET ?",
+                params + [limit, offset],
+            ).fetchall()
+            total = db.execute(f"SELECT COUNT(*) as c FROM emails {where}", params).fetchone()["c"]
+
     return {
         "items": [dict(r) for r in rows],
         "total": total,

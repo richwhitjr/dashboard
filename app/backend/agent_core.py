@@ -63,6 +63,88 @@ TOOLS = [
         },
     },
     {
+        "name": "search_notion",
+        "description": "Search Notion pages and databases by query string",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "q": {"type": "string", "description": "Search query"},
+                "page_size": {"type": "integer", "description": "Max results (default 10)"},
+            },
+            "required": ["q"],
+        },
+    },
+    {
+        "name": "search_drive",
+        "description": "Search Google Drive files by full-text query",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "q": {"type": "string", "description": "Search query"},
+                "max_results": {"type": "integer", "description": "Max results (default 20)"},
+            },
+            "required": ["q"],
+        },
+    },
+    {
+        "name": "search_github",
+        "description": "Search GitHub pull requests and issues",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "q": {"type": "string", "description": "Search query"},
+                "type": {
+                    "type": "string",
+                    "enum": ["pr", "issue", "all"],
+                    "description": "Filter by type (default: pr)",
+                },
+                "state": {
+                    "type": "string",
+                    "enum": ["open", "closed"],
+                    "description": "Filter by state (optional)",
+                },
+            },
+            "required": ["q"],
+        },
+    },
+    {
+        "name": "search_obsidian",
+        "description": "Search Obsidian vault notes by title, content, or tags",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "q": {"type": "string", "description": "Search query"},
+                "limit": {"type": "integer", "description": "Max results (default 20)"},
+            },
+            "required": ["q"],
+        },
+    },
+    {
+        "name": "get_news",
+        "description": "Get recent news items aggregated from Slack links, email links, and Google News RSS",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Max results (default 20)"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_ramp_transactions",
+        "description": (
+            "Get recent Ramp expense transactions, ranked by relevance. "
+            "Use for expense queries, spend analysis, and vendor lookups."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {"type": "integer", "description": "Look-back window in days (default 7)"},
+            },
+            "required": [],
+        },
+    },
+    {
         "name": "get_people",
         "description": "List people/coworkers. Optionally filter by is_coworker=true.",
         "input_schema": {
@@ -183,8 +265,11 @@ TOOLS = [
             "granola_meetings (title, created_at, panel_summary_plain), "
             "ramp_transactions (amount, merchant_name, card_holder, date), "
             "drive_files (name, mime_type, modified_time, web_view_link), "
+            "obsidian_notes (title, folder, content_preview, tags, wiki_links, word_count, modified_time), "
             "news_items (title, url, source, domain, snippet, found_at), "
             "sync_state (source, last_sync_at, last_sync_status). "
+            "Outlook emails sync into the `emails` table alongside Gmail (same schema). "
+            "OneDrive files sync into `drive_files`. Use these tables for Microsoft-specific queries. "
             "Only SELECT queries are allowed."
         ),
         "input_schema": {
@@ -504,6 +589,34 @@ async def execute_tool(name: str, tool_input: dict) -> str:
                 if "count" in tool_input:
                     params["count"] = tool_input["count"]
                 r = await client.get("/api/slack/search", params=params)
+            elif name == "search_notion":
+                params = {"q": tool_input["q"]}
+                if "page_size" in tool_input:
+                    params["page_size"] = tool_input["page_size"]
+                r = await client.get("/api/notion/search", params=params)
+            elif name == "search_drive":
+                params = {"q": tool_input["q"]}
+                if "max_results" in tool_input:
+                    params["max_results"] = tool_input["max_results"]
+                r = await client.get("/api/drive/search", params=params)
+            elif name == "search_github":
+                params = {"q": tool_input["q"]}
+                if "type" in tool_input:
+                    params["type"] = tool_input["type"]
+                if "state" in tool_input:
+                    params["state"] = tool_input["state"]
+                r = await client.get("/api/github/search", params=params)
+            elif name == "search_obsidian":
+                params = {"q": tool_input["q"]}
+                if "limit" in tool_input:
+                    params["limit"] = tool_input["limit"]
+                r = await client.get("/api/obsidian/all", params=params)
+            elif name == "get_news":
+                params = {"limit": tool_input.get("limit", 20)}
+                r = await client.get("/api/news", params=params)
+            elif name == "get_ramp_transactions":
+                params = {"days": tool_input.get("days", 7)}
+                r = await client.get("/api/ramp/prioritized", params=params)
             elif name == "get_people":
                 params = {}
                 if "is_coworker" in tool_input:

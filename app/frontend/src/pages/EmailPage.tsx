@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { usePrioritizedEmail, useRefreshPrioritizedEmail, useAllEmails } from '../api/hooks';
+import { usePrioritizedEmail, useRefreshPrioritizedEmail, useAllEmails, type AllTabSearchParams } from '../api/hooks';
 import { TimeAgo } from '../components/shared/TimeAgo';
 import { PrioritizedSourceList, ScoreBadge } from '../components/shared/PrioritizedSourceList';
 import { EmailThreadModal } from '../components/EmailThreadModal';
@@ -10,8 +10,9 @@ export function EmailPage() {
   const { data, isLoading } = usePrioritizedEmail(days);
   const refresh = useRefreshPrioritizedEmail(days);
   const [selectedThread, setSelectedThread] = useState<{ threadId: string; subject: string } | null>(null);
+  const [allSearchParams, setAllSearchParams] = useState<AllTabSearchParams>({});
 
-  const allQuery = useAllEmails();
+  const allQuery = useAllEmails(allSearchParams);
   const allEmails = useMemo(() => allQuery.data?.pages.flatMap(p => p.items) ?? [], [allQuery.data]);
   const allTotal = allQuery.data?.pages[0]?.total ?? 0;
 
@@ -60,6 +61,11 @@ export function EmailPage() {
           hasNextPage: !!allQuery.hasNextPage,
           isFetchingNextPage: allQuery.isFetchingNextPage,
           fetchNextPage: allQuery.fetchNextPage,
+          search: {
+            authorLabel: 'From',
+            hasDateFilter: true,
+            onParamsChange: setAllSearchParams,
+          },
           renderItem: (item, expanded) => {
             const email = item as (typeof allEmails)[0];
             return (
@@ -72,6 +78,7 @@ export function EmailPage() {
                   <div className="dashboard-item-title">
                     {email.is_unread && <strong>{'\u2022'} </strong>}
                     {email.subject}
+                    {(email.message_count ?? 0) > 1 && <span className="email-thread-count">({email.message_count})</span>}
                   </div>
                   <div className="dashboard-item-meta">
                     {email.from_name || email.from_email} &middot; <TimeAgo date={email.date} />

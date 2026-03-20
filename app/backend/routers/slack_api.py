@@ -57,15 +57,42 @@ class SlackMessage(BaseModel):
 def get_all_slack(
     offset: int = Query(0, ge=0),
     limit: int = Query(30, ge=1, le=100),
+    q: str | None = Query(None, description="Text search on message, user, channel"),
+    author: str | None = Query(None, description="Filter by username"),
+    from_date: str | None = Query(None, description="ISO date string, e.g. 2026-01-01"),
+    to_date: str | None = Query(None, description="ISO date string, inclusive"),
 ):
-    """Return all synced Slack messages, newest first, with pagination."""
+    """Return all synced Slack messages, newest first, with pagination and optional search."""
+    from datetime import datetime, timezone
+
+    conditions: list[str] = []
+    params: list = []
+
+    if q:
+        like = f"%{q}%"
+        conditions.append("(text LIKE ? OR user_name LIKE ? OR channel_name LIKE ?)")
+        params.extend([like, like, like])
+    if author:
+        conditions.append("user_name LIKE ?")
+        params.append(f"%{author}%")
+    if from_date:
+        ts = datetime.fromisoformat(from_date).replace(tzinfo=timezone.utc).timestamp()
+        conditions.append("CAST(ts AS REAL) >= ?")
+        params.append(ts)
+    if to_date:
+        ts = datetime.fromisoformat(to_date).replace(tzinfo=timezone.utc).timestamp() + 86400
+        conditions.append("CAST(ts AS REAL) <= ?")
+        params.append(ts)
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
     with get_db_connection(readonly=True) as db:
         rows = db.execute(
-            "SELECT id, channel_name, channel_type, user_name, text, ts, is_mention, permalink "
-            "FROM slack_messages ORDER BY ts DESC LIMIT ? OFFSET ?",
-            (limit, offset),
+            f"SELECT id, channel_name, channel_type, user_name, text, ts, is_mention, permalink "
+            f"FROM slack_messages {where} ORDER BY ts DESC LIMIT ? OFFSET ?",
+            params + [limit, offset],
         ).fetchall()
-        total = db.execute("SELECT COUNT(*) as c FROM slack_messages").fetchone()["c"]
+        total = db.execute(f"SELECT COUNT(*) as c FROM slack_messages {where}", params).fetchone()["c"]
     return {
         "items": [dict(r) for r in rows],
         "total": total,

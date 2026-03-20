@@ -62,15 +62,34 @@ def set_vault_path(body: dict):
 def get_all_notes(
     offset: int = Query(0, ge=0),
     limit: int = Query(30, ge=1, le=200),
+    q: str | None = Query(None, description="Search query (title, content preview, tags)"),
+    from_date: str | None = Query(None, description="ISO date string, e.g. 2026-01-01"),
+    to_date: str | None = Query(None, description="ISO date string, inclusive"),
 ):
+    conditions: list[str] = []
+    params: list = []
+
+    if q:
+        like = f"%{q}%"
+        conditions.append("(title LIKE ? OR content_preview LIKE ? OR tags LIKE ?)")
+        params.extend([like, like, like])
+    if from_date:
+        conditions.append("modified_time >= ?")
+        params.append(from_date)
+    if to_date:
+        conditions.append("modified_time <= ?")
+        params.append(to_date + "T23:59:59")
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
     with get_db_connection(readonly=True) as db:
-        total = db.execute("SELECT COUNT(*) as c FROM obsidian_notes").fetchone()["c"]
         rows = db.execute(
-            "SELECT id, title, relative_path, folder, content_preview, tags, wiki_links, "
-            "word_count, created_time, modified_time "
-            "FROM obsidian_notes ORDER BY modified_time DESC LIMIT ? OFFSET ?",
-            (limit, offset),
+            f"SELECT id, title, relative_path, folder, content_preview, tags, wiki_links, "
+            f"word_count, created_time, modified_time "
+            f"FROM obsidian_notes {where} ORDER BY modified_time DESC LIMIT ? OFFSET ?",
+            params + [limit, offset],
         ).fetchall()
+        total = db.execute(f"SELECT COUNT(*) as c FROM obsidian_notes {where}", params).fetchone()["c"]
 
     return {
         "items": [dict(r) for r in rows],

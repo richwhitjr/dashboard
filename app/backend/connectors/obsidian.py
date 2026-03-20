@@ -142,6 +142,31 @@ def sync_obsidian_notes() -> int:
     # Skip .obsidian directory and .trash
     md_files = [f for f in md_files if not any(p.startswith(".") for p in f.relative_to(vault).parts)]
 
+    if not md_files:
+        # Distinguish empty vault from TCC permission block.
+        # macOS silently returns empty directory listings (no PermissionError) when the app
+        # lacks Documents/Full Disk Access — but stat() still works for path traversal.
+        _tcc_msg = (
+            f"Vault {vault} appears empty but Obsidian metadata exists — "
+            "this app likely lacks macOS Full Disk Access. "
+            "Go to System Settings > Privacy & Security > Full Disk Access and add this app, "
+            "or run the backend from Terminal (make dev) instead of the native Dashboard app."
+        )
+        try:
+            children = list(vault.iterdir())
+        except PermissionError:
+            raise RuntimeError(
+                f"Access denied to vault {vault} — grant Full Disk Access to this app in "
+                "System Settings > Privacy & Security > Full Disk Access"
+            )
+        if children:
+            # iterdir sees entries but rglob found no .md files — unexpected, likely TCC
+            raise RuntimeError(_tcc_msg)
+        # iterdir returned 0 children — could be TCC silently blocking OR genuinely empty vault.
+        # .obsidian/ is always created by Obsidian in any initialized vault (stat works even w/o FDA).
+        if (vault / ".obsidian").is_dir():
+            raise RuntimeError(_tcc_msg)
+
     logger.info("Obsidian sync — found %d markdown files in %s", len(md_files), vault)
 
     # Phase 2: Build rows

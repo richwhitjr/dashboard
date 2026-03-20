@@ -54,15 +54,38 @@ _blocks_to_text = blocks_to_text  # backwards compat for internal use
 def get_all_notion(
     offset: int = Query(0, ge=0),
     limit: int = Query(30, ge=1, le=100),
+    q: str | None = Query(None, description="Text search on title, editor, snippet"),
+    author: str | None = Query(None, description="Filter by last editor name"),
+    from_date: str | None = Query(None, description="ISO date string, e.g. 2026-01-01"),
+    to_date: str | None = Query(None, description="ISO date string, inclusive"),
 ):
-    """Return all synced Notion pages, newest first, with pagination."""
+    """Return all synced Notion pages, newest first, with pagination and optional search."""
+    conditions: list[str] = []
+    params: list = []
+
+    if q:
+        like = f"%{q}%"
+        conditions.append("(title LIKE ? OR last_edited_by LIKE ? OR snippet LIKE ?)")
+        params.extend([like, like, like])
+    if author:
+        conditions.append("last_edited_by LIKE ?")
+        params.append(f"%{author}%")
+    if from_date:
+        conditions.append("last_edited_time >= ?")
+        params.append(from_date)
+    if to_date:
+        conditions.append("last_edited_time <= ?")
+        params.append(to_date + "T23:59:59")
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
     with get_db_connection(readonly=True) as db:
         rows = db.execute(
-            "SELECT id, title, url, last_edited_time, last_edited_by, snippet "
-            "FROM notion_pages ORDER BY last_edited_time DESC LIMIT ? OFFSET ?",
-            (limit, offset),
+            f"SELECT id, title, url, last_edited_time, last_edited_by, snippet "
+            f"FROM notion_pages {where} ORDER BY last_edited_time DESC LIMIT ? OFFSET ?",
+            params + [limit, offset],
         ).fetchall()
-        total = db.execute("SELECT COUNT(*) as c FROM notion_pages").fetchone()["c"]
+        total = db.execute(f"SELECT COUNT(*) as c FROM notion_pages {where}", params).fetchone()["c"]
     return {
         "items": [dict(r) for r in rows],
         "total": total,

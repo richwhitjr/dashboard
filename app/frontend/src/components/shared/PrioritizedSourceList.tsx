@@ -1,4 +1,4 @@
-import { useState, useCallback, type ReactNode } from 'react';
+import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
 import { useDismissPrioritizedItem, useCreateIssue } from '../../api/hooks';
 import { useFocusNavigation } from '../../hooks/useFocusNavigation';
 import { KeyboardHints } from './KeyboardHints';
@@ -15,6 +15,12 @@ export interface PrioritizedItem {
   id: string;
   priority_score: number;
   priority_reason?: string;
+}
+
+interface AllTabSearch {
+  authorLabel?: string;     // e.g. "From", "User", "Edited by"
+  hasDateFilter?: boolean;  // show from/to date inputs
+  onParamsChange: (params: { q?: string; author?: string; from_date?: string; to_date?: string }) => void;
 }
 
 interface Props<T extends PrioritizedItem> {
@@ -44,6 +50,7 @@ interface Props<T extends PrioritizedItem> {
     isFetchingNextPage: boolean;
     fetchNextPage: () => void;
     renderItem: (item: unknown, expanded: boolean) => ReactNode;
+    search?: AllTabSearch;
   };
   // Config
   errorMessage?: ReactNode;
@@ -78,6 +85,14 @@ export function PrioritizedSourceList<T extends PrioritizedItem>({
   const createIssue = useCreateIssue();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
+  // All-tab search state (local UI state; debounced before notifying parent)
+  const [localQuery, setLocalQuery] = useState('');
+  const [localAuthor, setLocalAuthor] = useState('');
+  const [localDateFrom, setLocalDateFrom] = useState('');
+  const [localDateTo, setLocalDateTo] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
   const toggleExpand = useCallback((id: string) => {
     setExpandedIds(prev => {
       const next = new Set(prev);
@@ -89,6 +104,7 @@ export function PrioritizedSourceList<T extends PrioritizedItem>({
   const items = minScore > 0 ? allItems.filter(m => m.priority_score >= minScore) : allItems;
   const hiddenCount = allItems.length - items.length;
 
+  // Priority tab keyboard navigation
   const { containerRef } = useFocusNavigation({
     selector: '.dashboard-item-row',
     enabled: tab === 'priority',
@@ -98,6 +114,71 @@ export function PrioritizedSourceList<T extends PrioritizedItem>({
     onExpand: (i) => { if (items[i]) toggleExpand(items[i].id); },
     onToggleFilter: () => setMinScore(prev => prev === 0 ? defaultMinScore : 0),
   });
+
+  // All tab keyboard navigation
+  const { containerRef: allContainerRef } = useFocusNavigation({
+    selector: '.dashboard-item-row',
+    enabled: tab === 'all',
+    onExpand: (i) => {
+      const item = allTab?.items[i] as PrioritizedItem | undefined;
+      if (item?.id) toggleExpand(item.id);
+    },
+  });
+
+  // Tab switching: p/[ = priority, a/] = all; / = focus search
+  useEffect(() => {
+    if (!allTab) return;
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if ((e.target as HTMLElement)?.isContentEditable) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === 'p' || e.key === '[') { e.preventDefault(); setTab('priority'); }
+      else if (e.key === 'a' || e.key === ']') { e.preventDefault(); setTab('all'); }
+      else if (e.key === '/' && tab === 'all' && allTab.search) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [allTab, tab]);
+
+  // Debounce: notify parent of search param changes 350ms after user stops typing
+  useEffect(() => {
+    if (!allTab?.search?.onParamsChange) return;
+    const timer = setTimeout(() => {
+      allTab.search!.onParamsChange({
+        q: localQuery || undefined,
+        author: localAuthor || undefined,
+        from_date: localDateFrom || undefined,
+        to_date: localDateTo || undefined,
+      });
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [localQuery, localAuthor, localDateFrom, localDateTo]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reset search state when leaving all tab
+  useEffect(() => {
+    if (tab !== 'all') {
+      setLocalQuery('');
+      setLocalAuthor('');
+      setLocalDateFrom('');
+      setLocalDateTo('');
+      setShowFilters(false);
+      allTab?.search?.onParamsChange({});
+    }
+  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const hasActiveSearch = localQuery || localAuthor || localDateFrom || localDateTo;
+
+  const clearSearch = () => {
+    setLocalQuery('');
+    setLocalAuthor('');
+    setLocalDateFrom('');
+    setLocalDateTo('');
+  };
 
   return (
     <div>
@@ -180,29 +261,115 @@ export function PrioritizedSourceList<T extends PrioritizedItem>({
             </p>
           )}
           {items.length > 0 && (
-            <KeyboardHints hints={['j/k navigate', 'Enter open', 'e expand', 'd dismiss', 'i create issue', 'f filter']} />
+            <KeyboardHints hints={[
+              'j/k navigate', 'Enter open', 'e expand', 'd dismiss', 'i create issue', 'f filter',
+              ...(allTab ? ['a/] all tab'] : []),
+            ]} />
           )}
         </>
       )}
 
       {tab === 'all' && allTab && (
         <>
+          {allTab.search && (
+            <div className="all-search-bar">
+              <input
+                ref={searchInputRef}
+                type="search"
+                value={localQuery}
+                onChange={e => setLocalQuery(e.target.value)}
+                placeholder={`Search ${itemNoun}s...`}
+                className="all-search-input"
+                onKeyDown={e => {
+                  if (e.key === 'Escape') {
+                    if (localQuery) setLocalQuery('');
+                    else searchInputRef.current?.blur();
+                  }
+                }}
+              />
+              {(allTab.search.authorLabel || allTab.search.hasDateFilter) && (
+                <button
+                  className={`day-filter-btn${showFilters ? ' day-filter-active' : ''}`}
+                  onClick={() => setShowFilters(f => !f)}
+                >
+                  Filters
+                </button>
+              )}
+              {hasActiveSearch && (
+                <button className="day-filter-btn" onClick={clearSearch}>Clear</button>
+              )}
+            </div>
+          )}
+
+          {showFilters && allTab.search && (
+            <div className="all-search-filters">
+              {allTab.search.authorLabel && (
+                <label>
+                  {allTab.search.authorLabel}
+                  <input
+                    type="text"
+                    value={localAuthor}
+                    onChange={e => setLocalAuthor(e.target.value)}
+                    className="all-search-filter-input"
+                    placeholder={`Filter by ${allTab.search.authorLabel.toLowerCase()}...`}
+                  />
+                </label>
+              )}
+              {allTab.search.hasDateFilter && (
+                <>
+                  <label>
+                    From
+                    <input
+                      type="date"
+                      value={localDateFrom}
+                      onChange={e => setLocalDateFrom(e.target.value)}
+                      className="all-search-filter-input"
+                    />
+                  </label>
+                  <label>
+                    To
+                    <input
+                      type="date"
+                      value={localDateTo}
+                      onChange={e => setLocalDateTo(e.target.value)}
+                      className="all-search-filter-input"
+                    />
+                  </label>
+                </>
+              )}
+            </div>
+          )}
+
           {allTab.isLoading && <p className="empty-state">Loading {itemNoun}s...</p>}
           {!allTab.isLoading && allTab.items.length === 0 && (
-            <p className="empty-state">No synced {itemNoun}s yet. Run a sync to populate.</p>
+            <p className="empty-state">
+              {hasActiveSearch
+                ? `No ${itemNoun}s match your search`
+                : `No synced ${itemNoun}s yet. Run a sync to populate.`}
+            </p>
           )}
-          <div>
+
+          <div ref={allContainerRef}>
             {allTab.items.map((item, i) => (
               <div key={(item as PrioritizedItem).id ?? i} className="dashboard-item-row">
                 {allTab.renderItem(item, expandedIds.has((item as PrioritizedItem).id))}
               </div>
             ))}
           </div>
+
           <InfiniteScrollSentinel
             hasNextPage={allTab.hasNextPage}
             isFetchingNextPage={allTab.isFetchingNextPage}
             fetchNextPage={allTab.fetchNextPage}
           />
+
+          {allTab.items.length > 0 && (
+            <KeyboardHints hints={[
+              'j/k navigate',
+              ...(allTab.search ? ['/ search', 'Esc clear'] : []),
+              'p/[ priority',
+            ]} />
+          )}
         </>
       )}
     </div>

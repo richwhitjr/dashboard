@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
   usePrioritizedDrive,
@@ -9,6 +9,7 @@ import {
   useSheets,
   useSheetValues,
   useAllDriveFiles,
+  type AllTabSearchParams,
 } from '../api/hooks';
 import type { GoogleSheet } from '../api/types';
 import { TimeAgo } from '../components/shared/TimeAgo';
@@ -129,6 +130,15 @@ function FilesTab() {
   const createIssue = useCreateIssue();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
+  // All-mode search state
+  const [allSearchParams, setAllSearchParams] = useState<AllTabSearchParams>({});
+  const [allLocalQuery, setAllLocalQuery] = useState('');
+  const [allLocalOwner, setAllLocalOwner] = useState('');
+  const [allLocalDateFrom, setAllLocalDateFrom] = useState('');
+  const [allLocalDateTo, setAllLocalDateTo] = useState('');
+  const [showAllFilters, setShowAllFilters] = useState(false);
+  const allSearchRef = useRef<HTMLInputElement>(null);
+
   const toggleExpand = useCallback((id: string) => {
     setExpandedIds((prev) => {
       const next = new Set(prev);
@@ -160,8 +170,50 @@ function FilesTab() {
     onToggleFilter: () => setMinScore((prev) => (prev === 0 ? DEFAULT_MIN_SCORE : 0)),
   });
 
+  // Debounce all-mode search params
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setAllSearchParams({
+        q: allLocalQuery || undefined,
+        author: allLocalOwner || undefined,
+        from_date: allLocalDateFrom || undefined,
+        to_date: allLocalDateTo || undefined,
+      });
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [allLocalQuery, allLocalOwner, allLocalDateFrom, allLocalDateTo]);
+
+  // Clear search when switching away from all mode
+  useEffect(() => {
+    if (mode !== 'all') {
+      setAllLocalQuery('');
+      setAllLocalOwner('');
+      setAllLocalDateFrom('');
+      setAllLocalDateTo('');
+      setShowAllFilters(false);
+      setAllSearchParams({});
+    }
+  }, [mode]);
+
+  // '/' to focus search when in all mode
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if ((e.target as HTMLElement)?.isContentEditable) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === '/' && mode === 'all') {
+        e.preventDefault();
+        allSearchRef.current?.focus();
+        allSearchRef.current?.select();
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [mode]);
+
   // All-files query
-  const allQuery = useAllDriveFiles();
+  const allQuery = useAllDriveFiles(allSearchParams);
   const allFiles = useMemo(() => allQuery.data?.pages.flatMap(p => p.items) ?? [], [allQuery.data]);
   const allTotal = allQuery.data?.pages[0]?.total ?? 0;
 
@@ -318,9 +370,56 @@ function FilesTab() {
 
       {mode === 'all' && (
         <>
+          <div className="all-search-bar">
+            <input
+              ref={allSearchRef}
+              type="search"
+              value={allLocalQuery}
+              onChange={e => setAllLocalQuery(e.target.value)}
+              placeholder="Search files..."
+              className="all-search-input"
+              onKeyDown={e => {
+                if (e.key === 'Escape') {
+                  if (allLocalQuery) setAllLocalQuery('');
+                  else allSearchRef.current?.blur();
+                }
+              }}
+            />
+            <button
+              className={`day-filter-btn${showAllFilters ? ' day-filter-active' : ''}`}
+              onClick={() => setShowAllFilters(f => !f)}
+            >
+              Filters
+            </button>
+            {(allLocalQuery || allLocalOwner || allLocalDateFrom || allLocalDateTo) && (
+              <button className="day-filter-btn" onClick={() => { setAllLocalQuery(''); setAllLocalOwner(''); setAllLocalDateFrom(''); setAllLocalDateTo(''); }}>
+                Clear
+              </button>
+            )}
+          </div>
+          {showAllFilters && (
+            <div className="all-search-filters">
+              <label>
+                Owner
+                <input type="text" value={allLocalOwner} onChange={e => setAllLocalOwner(e.target.value)} className="all-search-filter-input" placeholder="Filter by owner..." />
+              </label>
+              <label>
+                From
+                <input type="date" value={allLocalDateFrom} onChange={e => setAllLocalDateFrom(e.target.value)} className="all-search-filter-input" />
+              </label>
+              <label>
+                To
+                <input type="date" value={allLocalDateTo} onChange={e => setAllLocalDateTo(e.target.value)} className="all-search-filter-input" />
+              </label>
+            </div>
+          )}
           {allQuery.isLoading && <p className="empty-state">Loading files...</p>}
           {!allQuery.isLoading && allFiles.length === 0 && (
-            <p className="empty-state">No synced Drive files yet. Run a sync to populate.</p>
+            <p className="empty-state">
+              {(allLocalQuery || allLocalOwner || allLocalDateFrom || allLocalDateTo)
+                ? 'No files match your search'
+                : 'No synced Drive files yet. Run a sync to populate.'}
+            </p>
           )}
           <div>
             {allFiles.map((file) => {

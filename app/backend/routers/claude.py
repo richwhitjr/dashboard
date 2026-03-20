@@ -69,8 +69,11 @@ def _build_system_prompt() -> str:
         "2) REST APIs at http://localhost:8000/api/... — CRUD and search endpoints. "
         "3) SQLite queries on ~/.personal-dashboard/dashboard.db — direct table access. "
         "Key REST endpoints: /api/meetings, /api/gmail/search, /api/slack/search, "
-        "/api/calendar/search, /api/notion/search, /api/notes, /api/issues, "
-        "/api/people, /api/priorities, /api/search?q=. "
+        "/api/calendar/search, /api/notion/search, /api/drive/search, /api/github/search, "
+        "/api/obsidian/all?q=, /api/news, /api/ramp/prioritized, "
+        "/api/notes, /api/issues, /api/people, /api/priorities, /api/search?q=. "
+        "Microsoft Outlook emails sync into the `emails` table (same schema as Gmail); "
+        "OneDrive files sync into `drive_files`. Use SQLite queries to access Microsoft data. "
         "PAGINATION: Most list endpoints return partial results by default — always paginate to get "
         "complete data. Use ?offset=N&limit=200 (max 200) and loop until has_more is false or "
         "offset+limit >= total. Paginated endpoints include: "
@@ -395,7 +398,16 @@ async def claude_terminal(
                 pass  # Gracefully degrade if DB lookup fails
 
     # Resolve full path to claude binary before fork (child may have different PATH)
-    claude_bin = shutil.which("claude") or "claude"
+    # Augment PATH with common user-local install locations that may not be in the
+    # server process environment (e.g. ~/.local/bin, ~/.npm-global/bin, /opt/homebrew/bin)
+    _extra_paths = [
+        str(Path.home() / ".local" / "bin"),
+        str(Path.home() / ".npm-global" / "bin"),
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+    ]
+    _search_path = os.environ.get("PATH", "") + os.pathsep + os.pathsep.join(_extra_paths)
+    claude_bin = shutil.which("claude", path=_search_path) or "claude"
 
     # Fork a PTY running claude
     child_pid, fd = pty.fork()

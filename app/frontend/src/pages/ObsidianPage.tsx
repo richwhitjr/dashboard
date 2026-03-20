@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { usePrioritizedObsidian, useRefreshPrioritizedObsidian, useAllObsidian, useObsidianVault } from '../api/hooks';
+import { usePrioritizedObsidian, useRefreshPrioritizedObsidian, useAllObsidian, useObsidianVault, type AllTabSearchParams } from '../api/hooks';
 import { openExternal } from '../api/client';
 import { TimeAgo } from '../components/shared/TimeAgo';
 import { PrioritizedSourceList, ScoreBadge } from '../components/shared/PrioritizedSourceList';
@@ -22,7 +22,8 @@ export function ObsidianPage() {
     folder?: string | null; modifiedTime?: string; wordCount?: number; contentPreview?: string | null;
   } | null>(null);
 
-  const allQuery = useAllObsidian();
+  const [allSearchParams, setAllSearchParams] = useState<AllTabSearchParams>({});
+  const allQuery = useAllObsidian(allSearchParams);
   const allNotes = useMemo(() => allQuery.data?.pages.flatMap(p => p.items) ?? [], [allQuery.data]);
   const allTotal = allQuery.data?.pages[0]?.total ?? 0;
 
@@ -94,6 +95,10 @@ export function ObsidianPage() {
           hasNextPage: !!allQuery.hasNextPage,
           isFetchingNextPage: allQuery.isFetchingNextPage,
           fetchNextPage: allQuery.fetchNextPage,
+          search: {
+            hasDateFilter: true,
+            onParamsChange: setAllSearchParams,
+          },
           renderItem: (item, expanded) => {
             const note = item as (typeof allNotes)[0];
             return (

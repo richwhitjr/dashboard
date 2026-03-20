@@ -34,14 +34,37 @@ def _get_service():
 def get_all_drive_files(
     offset: int = Query(0, ge=0),
     limit: int = Query(30, ge=1, le=100),
+    q: str | None = Query(None, description="Text search on file name or owner"),
+    author: str | None = Query(None, description="Filter by owner name"),
+    from_date: str | None = Query(None, description="ISO date string, e.g. 2026-01-01"),
+    to_date: str | None = Query(None, description="ISO date string, inclusive"),
 ):
-    """Return all synced Drive files, newest first, with pagination."""
+    """Return all synced Drive files, newest first, with pagination and optional search."""
+    conditions: list[str] = ["trashed = 0"]
+    params: list = []
+
+    if q:
+        like = f"%{q}%"
+        conditions.append("(name LIKE ? OR owner_name LIKE ?)")
+        params.extend([like, like])
+    if author:
+        conditions.append("owner_name LIKE ?")
+        params.append(f"%{author}%")
+    if from_date:
+        conditions.append("modified_time >= ?")
+        params.append(from_date)
+    if to_date:
+        conditions.append("modified_time <= ?")
+        params.append(to_date + "T23:59:59")
+
+    where = "WHERE " + " AND ".join(conditions)
+
     with get_db_connection(readonly=True) as db:
         rows = db.execute(
-            "SELECT * FROM drive_files WHERE trashed = 0 ORDER BY modified_time DESC LIMIT ? OFFSET ?",
-            (limit, offset),
+            f"SELECT * FROM drive_files {where} ORDER BY modified_time DESC LIMIT ? OFFSET ?",
+            params + [limit, offset],
         ).fetchall()
-        total = db.execute("SELECT COUNT(*) as c FROM drive_files WHERE trashed = 0").fetchone()["c"]
+        total = db.execute(f"SELECT COUNT(*) as c FROM drive_files {where}", params).fetchone()["c"]
     return {
         "items": [dict(r) for r in rows],
         "total": total,

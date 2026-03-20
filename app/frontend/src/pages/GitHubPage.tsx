@@ -1,5 +1,5 @@
-import { useState, useMemo, useCallback } from 'react';
-import { useGitHubPulls, useGitHubSearch, useGitHubCodeSearch, useDismissPrioritizedItem, useCreateIssue, useAllGitHub, usePrioritizedGitHub, useRefreshPrioritizedGitHub } from '../api/hooks';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useGitHubPulls, useGitHubSearch, useGitHubCodeSearch, useDismissPrioritizedItem, useCreateIssue, useAllGitHub, usePrioritizedGitHub, useRefreshPrioritizedGitHub, type AllTabSearchParams } from '../api/hooks';
 import { TimeAgo } from '../components/shared/TimeAgo';
 import { useFocusNavigation } from '../hooks/useFocusNavigation';
 import { KeyboardHints } from '../components/shared/KeyboardHints';
@@ -8,6 +8,9 @@ import { ScoreBadge } from '../components/shared/PrioritizedSourceList';
 
 type Tab = 'priority' | 'reviews' | 'open' | 'search' | 'all';
 type SearchMode = 'prs' | 'code';
+type NavigableItem = { number: number; title: string };
+
+const TABS: Tab[] = ['priority', 'reviews', 'open', 'search', 'all'];
 
 const SCORE_OPTIONS = [3, 5, 6, 7, 8] as const;
 
@@ -20,6 +23,15 @@ export function GitHubPage() {
   const dismiss = useDismissPrioritizedItem();
   const createIssue = useCreateIssue();
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+
+  // All-tab search state
+  const [allSearchParams, setAllSearchParams] = useState<AllTabSearchParams>({});
+  const [allLocalQuery, setAllLocalQuery] = useState('');
+  const [allLocalAuthor, setAllLocalAuthor] = useState('');
+  const [allLocalDateFrom, setAllLocalDateFrom] = useState('');
+  const [allLocalDateTo, setAllLocalDateTo] = useState('');
+  const [showAllFilters, setShowAllFilters] = useState(false);
+  const allSearchRef = useRef<HTMLInputElement>(null);
 
   const toggleExpand = useCallback((id: number) => {
     setExpandedIds(prev => {
@@ -36,32 +48,81 @@ export function GitHubPage() {
   const searchResults = useGitHubSearch(submittedQuery, searchMode === 'prs' ? 'pr' : undefined);
   const codeResults = useGitHubCodeSearch(searchMode === 'code' ? submittedQuery : '');
 
-  const activePulls = useMemo(() => {
+  const prioritizedItems = prioritizedQuery.data?.items ?? [];
+  const filteredPriority = prioritizedItems.filter(pr => pr.priority_score >= minScore);
+
+  const activeItems = useMemo((): NavigableItem[] => {
+    if (tab === 'priority') return filteredPriority;
     if (tab === 'reviews') return reviewPulls.data?.pulls ?? [];
     if (tab === 'open') return openPulls.data?.pulls ?? [];
     return [];
-  }, [tab, reviewPulls.data, openPulls.data]);
+  }, [tab, filteredPriority, reviewPulls.data, openPulls.data]);
 
   const { containerRef } = useFocusNavigation({
     selector: '.dashboard-item-row',
-    enabled: tab === 'reviews' || tab === 'open',
-    onDismiss: (i) => { if (activePulls[i]) dismiss.mutate({ source: 'github', item_id: String(activePulls[i].number) }); },
-    onCreateIssue: (i) => { if (activePulls[i]) createIssue.mutate({ title: activePulls[i].title }); },
-    onExpand: (i) => { if (activePulls[i]) toggleExpand(activePulls[i].number); },
+    enabled: tab === 'priority' || tab === 'reviews' || tab === 'open',
+    onDismiss: (i) => { if (activeItems[i]) dismiss.mutate({ source: 'github', item_id: String(activeItems[i].number) }); },
+    onCreateIssue: (i) => { if (activeItems[i]) createIssue.mutate({ title: activeItems[i].title }); },
+    onExpand: (i) => { if (activeItems[i]) toggleExpand(activeItems[i].number); },
   });
+
+  // Tab switching with [ / ]
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if ((e.target as HTMLElement)?.isContentEditable) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === '[') {
+        e.preventDefault();
+        setTab(t => TABS[Math.max(0, TABS.indexOf(t) - 1)]);
+      } else if (e.key === ']') {
+        e.preventDefault();
+        setTab(t => TABS[Math.min(TABS.length - 1, TABS.indexOf(t) + 1)]);
+      } else if (e.key === '/' && tab === 'all') {
+        e.preventDefault();
+        allSearchRef.current?.focus();
+        allSearchRef.current?.select();
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [tab]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     setSubmittedQuery(searchQuery.trim());
   };
 
+  // Debounce all-tab search params
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setAllSearchParams({
+        q: allLocalQuery || undefined,
+        author: allLocalAuthor || undefined,
+        from_date: allLocalDateFrom || undefined,
+        to_date: allLocalDateTo || undefined,
+      });
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [allLocalQuery, allLocalAuthor, allLocalDateFrom, allLocalDateTo]);
+
+  // Clear all-tab search when switching away
+  useEffect(() => {
+    if (tab !== 'all') {
+      setAllLocalQuery('');
+      setAllLocalAuthor('');
+      setAllLocalDateFrom('');
+      setAllLocalDateTo('');
+      setShowAllFilters(false);
+      setAllSearchParams({});
+    }
+  }, [tab]);
+
   // All-items tab
-  const allQuery = useAllGitHub();
+  const allQuery = useAllGitHub(allSearchParams);
   const allPRs = useMemo(() => allQuery.data?.pages.flatMap(p => p.items) ?? [], [allQuery.data]);
   const allTotal = allQuery.data?.pages[0]?.total ?? 0;
-
-  const prioritizedItems = prioritizedQuery.data?.items ?? [];
-  const filteredPriority = prioritizedItems.filter(pr => pr.priority_score >= minScore);
 
   return (
     <div ref={containerRef}>
@@ -301,9 +362,56 @@ export function GitHubPage() {
 
       {tab === 'all' && (
         <div className="github-pr-list">
+          <div className="all-search-bar">
+            <input
+              ref={allSearchRef}
+              type="search"
+              value={allLocalQuery}
+              onChange={e => setAllLocalQuery(e.target.value)}
+              placeholder="Search PRs..."
+              className="all-search-input"
+              onKeyDown={e => {
+                if (e.key === 'Escape') {
+                  if (allLocalQuery) setAllLocalQuery('');
+                  else allSearchRef.current?.blur();
+                }
+              }}
+            />
+            <button
+              className={`day-filter-btn${showAllFilters ? ' day-filter-active' : ''}`}
+              onClick={() => setShowAllFilters(f => !f)}
+            >
+              Filters
+            </button>
+            {(allLocalQuery || allLocalAuthor || allLocalDateFrom || allLocalDateTo) && (
+              <button className="day-filter-btn" onClick={() => { setAllLocalQuery(''); setAllLocalAuthor(''); setAllLocalDateFrom(''); setAllLocalDateTo(''); }}>
+                Clear
+              </button>
+            )}
+          </div>
+          {showAllFilters && (
+            <div className="all-search-filters">
+              <label>
+                Author
+                <input type="text" value={allLocalAuthor} onChange={e => setAllLocalAuthor(e.target.value)} className="all-search-filter-input" placeholder="Filter by author..." />
+              </label>
+              <label>
+                From
+                <input type="date" value={allLocalDateFrom} onChange={e => setAllLocalDateFrom(e.target.value)} className="all-search-filter-input" />
+              </label>
+              <label>
+                To
+                <input type="date" value={allLocalDateTo} onChange={e => setAllLocalDateTo(e.target.value)} className="all-search-filter-input" />
+              </label>
+            </div>
+          )}
           {allQuery.isLoading && <p className="empty-state">Loading synced PRs...</p>}
           {!allQuery.isLoading && allPRs.length === 0 && (
-            <p className="empty-state">No synced PRs yet. Run a sync to populate.</p>
+            <p className="empty-state">
+              {(allLocalQuery || allLocalAuthor || allLocalDateFrom || allLocalDateTo)
+                ? 'No PRs match your search'
+                : 'No synced PRs yet. Run a sync to populate.'}
+            </p>
           )}
           {allPRs.map((pr) => (
             <PullRequestRow
@@ -322,9 +430,11 @@ export function GitHubPage() {
         </div>
       )}
 
-      {(tab === 'reviews' && reviewPulls.data?.pulls.length || tab === 'open' && openPulls.data?.pulls.length) ? (
-        <KeyboardHints hints={['j/k navigate', 'Enter open', 'e expand', 'd dismiss', 'i create issue']} />
-      ) : null}
+      <KeyboardHints hints={[
+        ...(tab === 'priority' || tab === 'reviews' || tab === 'open' ? ['↑↓/j/k navigate', 'Enter open', 'd dismiss'] : []),
+        ...(tab === 'reviews' || tab === 'open' ? ['e expand', 'i create issue'] : []),
+        '[/] switch tabs',
+      ]} />
     </div>
   );
 }
