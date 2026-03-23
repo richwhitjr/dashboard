@@ -568,11 +568,13 @@ export function useSearchMeetings(query: string) {
   });
 }
 
-// --- Longform ---
+// --- Docs (formerly Longform) ---
 
 export function useLongformPosts(filters?: {
   status?: string;
   tag?: string;
+  folder?: string;
+  folder_prefix?: boolean;
   search?: string;
   sort_by?: string;
   sort_dir?: string;
@@ -580,20 +582,22 @@ export function useLongformPosts(filters?: {
   const params = new URLSearchParams();
   if (filters?.status) params.set('status', filters.status);
   if (filters?.tag) params.set('tag', filters.tag);
+  if (filters?.folder) params.set('folder', filters.folder);
+  if (filters?.folder_prefix) params.set('folder_prefix', 'true');
   if (filters?.search) params.set('search', filters.search);
   if (filters?.sort_by) params.set('sort_by', filters.sort_by);
   if (filters?.sort_dir) params.set('sort_dir', filters.sort_dir);
   const qs = params.toString();
   return useQuery({
     queryKey: ['longform', filters],
-    queryFn: () => api.get<LongformPost[]>(`/longform${qs ? `?${qs}` : ''}`),
+    queryFn: () => api.get<LongformPost[]>(`/docs${qs ? `?${qs}` : ''}`),
   });
 }
 
 export function useLongformPost(id: number | null) {
   return useQuery({
     queryKey: ['longform', id],
-    queryFn: () => api.get<LongformPostDetail>(`/longform/${id}`),
+    queryFn: () => api.get<LongformPostDetail>(`/docs/${id}`),
     enabled: id !== null,
   });
 }
@@ -601,7 +605,15 @@ export function useLongformPost(id: number | null) {
 export function useLongformTags() {
   return useQuery({
     queryKey: ['longform-tags'],
-    queryFn: () => api.get<string[]>('/longform/tags'),
+    queryFn: () => api.get<string[]>('/docs/tags'),
+    staleTime: 30_000,
+  });
+}
+
+export function useDocsFolders() {
+  return useQuery({
+    queryKey: ['docs-folders'],
+    queryFn: () => api.get<{ name: string; count: number }[]>('/docs/folders'),
     staleTime: 30_000,
   });
 }
@@ -609,10 +621,11 @@ export function useLongformTags() {
 export function useCreateLongform() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (post: { title?: string; body?: string; status?: string; tags?: string[]; person_ids?: string[] }) =>
-      api.post<LongformPost>('/longform', post),
+    mutationFn: (post: { title?: string; body?: string; status?: string; tags?: string[]; person_ids?: string[]; folder?: string }) =>
+      api.post<LongformPost>('/docs', post),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['longform'] });
+      qc.invalidateQueries({ queryKey: ['docs-folders'] });
       qc.invalidateQueries({ queryKey: ['search'] });
     },
   });
@@ -631,9 +644,11 @@ export function useUpdateLongform() {
       status?: string;
       tags?: string[];
       person_ids?: string[];
-    }) => api.patch<LongformPostDetail>(`/longform/${id}`, update),
+      folder?: string;
+    }) => api.patch<LongformPostDetail>(`/docs/${id}`, update),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['longform'] });
+      qc.invalidateQueries({ queryKey: ['docs-folders'] });
       qc.invalidateQueries({ queryKey: ['search'] });
       qc.invalidateQueries({ queryKey: ['person'] });
     },
@@ -643,9 +658,10 @@ export function useUpdateLongform() {
 export function useDeleteLongform() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => api.delete(`/longform/${id}`),
+    mutationFn: (id: number) => api.delete(`/docs/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['longform'] });
+      qc.invalidateQueries({ queryKey: ['docs-folders'] });
       qc.invalidateQueries({ queryKey: ['search'] });
     },
   });
@@ -655,7 +671,7 @@ export function useCreateLongformComment() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ postId, text, is_thought }: { postId: number; text: string; is_thought?: boolean }) =>
-      api.post<LongformComment>(`/longform/${postId}/comments`, { text, is_thought }),
+      api.post<LongformComment>(`/docs/${postId}/comments`, { text, is_thought }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['longform'] });
     },
@@ -666,7 +682,7 @@ export function useDeleteLongformComment() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ postId, commentId }: { postId: number; commentId: number }) =>
-      api.delete(`/longform/${postId}/comments/${commentId}`),
+      api.delete(`/docs/${postId}/comments/${commentId}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['longform'] });
     },
@@ -677,7 +693,7 @@ export function useCreateLongformFromSession() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (sessionId: number) =>
-      api.post<LongformPost>(`/longform/from-session/${sessionId}`, {}),
+      api.post<LongformPost>(`/docs/from-session/${sessionId}`, {}),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['longform'] });
     },
@@ -688,7 +704,7 @@ export function useCreateLongformFromAgentConversation() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (convId: number) =>
-      api.post<LongformPost>(`/longform/from-agent-conversation/${convId}`, {}),
+      api.post<LongformPost>(`/docs/from-agent-conversation/${convId}`, {}),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['longform'] });
     },
@@ -705,7 +721,27 @@ export function useAIEditLongform() {
       selected_text?: string;
       history?: { instruction: string; commentary: string }[];
     }) =>
-      api.post<LongformAIEditResponse>(`/longform/${postId}/ai-edit`, req),
+      api.post<LongformAIEditResponse>(`/docs/${postId}/ai-edit`, req),
+  });
+}
+
+export function useExportDocToNotion() {
+  return useMutation({
+    mutationFn: ({ docId, parentId, parentType }: { docId: number; parentId?: string; parentType?: string }) =>
+      api.post<{ url: string; page_id: string }>(
+        `/docs/${docId}/export/notion${parentId ? `?parent_id=${encodeURIComponent(parentId)}${parentType ? `&parent_type=${encodeURIComponent(parentType)}` : ''}` : ''}`,
+        {},
+      ),
+  });
+}
+
+export function useExportDocToGoogleDocs() {
+  return useMutation({
+    mutationFn: ({ docId, folderId }: { docId: number; folderId?: string }) =>
+      api.post<{ url: string; doc_id: string }>(
+        `/docs/${docId}/export/google-docs${folderId ? `?folder_id=${encodeURIComponent(folderId)}` : ''}`,
+        {},
+      ),
   });
 }
 
@@ -747,7 +783,7 @@ export function useUpdatePerson() {
       name?: string;
       title?: string;
       reports_to?: string | null;
-      group_name?: string;
+      group_name?: string | null;
       email?: string;
       role_content?: string;
       is_coworker?: boolean;
@@ -1435,6 +1471,15 @@ export function useDismissPrioritizedItem() {
           const filtered = data.pulls.filter((pr) => String(pr.number) !== item_id);
           qc.setQueryData(key, { ...data, count: filtered.length, pulls: filtered });
         }
+        await qc.cancelQueries({ queryKey: ['github-prioritized'] });
+        const prioData = qc.getQueryData<PrioritizedGitHubData>(['github-prioritized']);
+        if (prioData?.items) {
+          snapshots.push([['github-prioritized'], prioData]);
+          qc.setQueryData<PrioritizedGitHubData>(['github-prioritized'], {
+            ...prioData,
+            items: prioData.items.filter((pr) => String(pr.number) !== item_id),
+          });
+        }
       } else {
         // Optimistic dismiss for all prioritized sources (slack, email, notion, ramp, news, drive)
         const keyMap: Record<string, string> = { slack: 'slack-prioritized', email: 'email-prioritized', notion: 'notion-prioritized', ramp: 'ramp-prioritized', news: 'news-prioritized', drive: 'drive-prioritized', obsidian: 'obsidian-prioritized' };
@@ -1460,6 +1505,7 @@ export function useDismissPrioritizedItem() {
       qc.invalidateQueries({ queryKey: ['drive-prioritized'] });
       qc.invalidateQueries({ queryKey: ['obsidian-prioritized'] });
       qc.invalidateQueries({ queryKey: ['github-pulls'] });
+      qc.invalidateQueries({ queryKey: ['github-prioritized'] });
       qc.invalidateQueries({ queryKey: ['meetings'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
       pushUndo({
@@ -1474,6 +1520,7 @@ export function useDismissPrioritizedItem() {
           qc.invalidateQueries({ queryKey: ['drive-prioritized'] });
           qc.invalidateQueries({ queryKey: ['obsidian-prioritized'] });
           qc.invalidateQueries({ queryKey: ['github-pulls'] });
+          qc.invalidateQueries({ queryKey: ['github-prioritized'] });
           qc.invalidateQueries({ queryKey: ['meetings'] });
           qc.invalidateQueries({ queryKey: ['dashboard'] });
         },

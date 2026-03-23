@@ -11,7 +11,7 @@ import { api } from '../api/client';
 const ENTITY_QUERY_KEYS: Record<string, string[][]> = {
   notes: [['notes'], ['dashboard'], ['person'], ['search']],
   issues: [['issues'], ['dashboard'], ['issue-tags'], ['search']],
-  longform: [['longform'], ['longform-tags']],
+  docs: [['longform'], ['longform-tags'], ['docs-folders']],
 };
 
 export function useChangeTracker() {

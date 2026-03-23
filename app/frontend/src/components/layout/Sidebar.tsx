@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { usePeople, useSync, useAuthStatus, useConnectors, useCreatePerson, useDeletePerson, useUpdatePerson, usePersonas, useGroups, useRenameGroup } from '../../api/hooks';
+import { usePeople, useSync, useAuthStatus, useConnectors, useCreatePerson, useUpdatePerson, usePersonas, useGroups, useRenameGroup } from '../../api/hooks';
 import { useSyncProgress } from '../../hooks/useSyncProgress';
 import { SyncDetailModal } from '../SyncProgressOverlay';
 import type { SyncSourceInfo } from '../../api/types';
@@ -44,7 +44,6 @@ export function Sidebar() {
 
 
   const createEmployee = useCreatePerson();
-  const deleteEmployee = useDeletePerson();
   const updateEmployee = useUpdatePerson();
   const renameGroup = useRenameGroup();
 
@@ -108,8 +107,8 @@ export function Sidebar() {
   };
 
   const handleRemove = (id: string, name: string) => {
-    if (!confirm(`Remove ${name}?`)) return;
-    deleteEmployee.mutate(id);
+    if (!confirm(`Remove ${name} from this group?`)) return;
+    updateEmployee.mutate({ id, group_name: null });
   };
 
   // Only count auth status for enabled connectors
@@ -132,7 +131,7 @@ export function Sidebar() {
         <nav>
           <NavLink to="/notes">Thoughts</NavLink>
           <NavLink to="/issues">Issues</NavLink>
-          <NavLink to="/longform">Writing</NavLink>
+          <NavLink to="/docs">Docs</NavLink>
           {(active.has('google') || active.has('granola')) && <NavLink to="/meetings">Meetings</NavLink>}
         </nav>
 

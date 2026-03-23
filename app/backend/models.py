@@ -153,9 +153,10 @@ class SandboxFileWrite(BaseModel):
 class LongformCreate(BaseModel):
     title: str = "Untitled"
     body: str = ""
-    status: str = "draft"
+    status: str = "active"
     tags: Optional[list[str]] = None
     person_ids: Optional[list[str]] = None
+    folder: Optional[str] = None
 
 
 class LongformUpdate(BaseModel):
@@ -164,6 +165,7 @@ class LongformUpdate(BaseModel):
     status: Optional[str] = None
     tags: Optional[list[str]] = None
     person_ids: Optional[list[str]] = None
+    folder: Optional[str] = None
 
 
 class LongformCommentCreate(BaseModel):

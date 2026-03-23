@@ -817,7 +817,7 @@ export function PersonPage() {
               <h2>Writing</h2>
               {person.linked_longform_posts.map((lp) => (
                 <div key={lp.id} className="note-item">
-                  <Link to={`/longform?postId=${lp.id}`} className="issue-title">
+                  <Link to={`/docs?postId=${lp.id}`} className="issue-title">
                     {lp.title}
                   </Link>
                   <span className={`longform-status-badge ${lp.status}`} style={{ marginLeft: '0.5em' }}>

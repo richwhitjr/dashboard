@@ -178,15 +178,15 @@ export function ClaudePage({ visible, overlayOpen }: { visible: boolean; overlay
     if (pendingLongformId === null) return;
     setPendingLongformId(null);
 
-    api.get<LongformPostDetail>(`/longform/${pendingLongformId}`).then((post) => {
-      let prompt = `I have a longform post I'd like help with:\n\n# ${post.title}\n\n`;
+    api.get<LongformPostDetail>(`/docs/${pendingLongformId}`).then((post) => {
+      let prompt = `I have a doc I'd like help with:\n\n# ${post.title}\n\n`;
       if (post.body) {
         const bodyPreview = post.body.length > 3000 ? post.body.slice(0, 3000) + '\n\n...(truncated)' : post.body;
         prompt += bodyPreview;
       }
       prompt += `\n\nStatus: ${post.status} | ${post.word_count} words`;
       if (post.tags?.length) prompt += ` | Tags: ${post.tags.join(', ')}`;
-      prompt += `\n\nPlease help me improve and refine this post.`;
+      prompt += `\n\nPlease help me improve and refine this doc.`;
 
       tabCounterRef.current += 1;
       const id = String(nextTabId++);
@@ -523,11 +523,11 @@ export function ClaudePage({ visible, overlayOpen }: { visible: boolean; overlay
                         e.stopPropagation();
                         createLongformFromSession.mutate(s.id, {
                           onSuccess: (post) => {
-                            navigate(`/longform?postId=${post.id}`);
+                            navigate(`/docs?postId=${post.id}`);
                           },
                         });
                       }}
-                      title="Save as longform post"
+                      title="Save as doc"
                       disabled={createLongformFromSession.isPending}
                     >
                       📄

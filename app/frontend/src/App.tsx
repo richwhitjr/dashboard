@@ -26,7 +26,7 @@ const ClaudePage = lazy(() => import('./pages/ClaudePage').then(m => ({ default:
 const GitHubPage = lazy(() => import('./pages/GitHubPage').then(m => ({ default: m.GitHubPage })));
 const MeetingsPage = lazy(() => import('./pages/MeetingsPage').then(m => ({ default: m.MeetingsPage })));
 const IssuesPage = lazy(() => import('./pages/IssuesPage').then(m => ({ default: m.IssuesPage })));
-const LongformPage = lazy(() => import('./pages/LongformPage').then(m => ({ default: m.LongformPage })));
+const DocsPage = lazy(() => import('./pages/DocsPage').then(m => ({ default: m.DocsPage })));
 
 const SlackPage = lazy(() => import('./pages/SlackPage').then(m => ({ default: m.SlackPage })));
 const NotionPage = lazy(() => import('./pages/NotionPage').then(m => ({ default: m.NotionPage })));
@@ -149,7 +149,9 @@ function AppContent() {
               <Route path="/notes" element={<NotePage />} />
 
               <Route path="/issues" element={<IssuesPage />} />
-              <Route path="/longform" element={<LongformPage />} />
+              <Route path="/docs" element={<DocsPage />} />
+              <Route path="/longform" element={<Navigate to="/docs" replace />} />
+              <Route path="/writing" element={<Navigate to="/docs" replace />} />
               <Route path="/meetings" element={<MeetingsPage />} />
               <Route path="/news" element={<NewsPage />} />
               <Route path="/team" element={<Navigate to="/people" replace />} />

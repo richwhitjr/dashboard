@@ -802,13 +802,13 @@ async def execute_tool(name: str, tool_input: dict) -> str:
                 body = {
                     "title": tool_input["title"],
                     "body": tool_input["body"],
-                    "status": "draft",
+                    "status": "active",
                 }
                 if "tags" in tool_input:
                     body["tags"] = tool_input["tags"]
                 if "person_id" in tool_input:
                     body["person_ids"] = [tool_input["person_id"]]
-                r = await client.post("/api/longform", json=body)
+                r = await client.post("/api/docs", json=body)
             elif name == "add_one_on_one_note":
                 person_id = tool_input["person_id"]
                 body = {

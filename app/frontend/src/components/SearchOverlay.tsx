@@ -31,13 +31,16 @@ const PAGE_COMMANDS: { label: string; sublabel: string; route: string; keywords:
   { label: 'Today', sublabel: 'Home overview', route: '/', keywords: ['dashboard', 'home', 'overview', 'briefing', 'today'] },
   { label: 'Thoughts', sublabel: 'Add and manage thoughts', route: '/notes?focus=1', keywords: ['thoughts', 'thought', 'notes', 'note', 'todo', 'todos'] },
   { label: 'Issues', sublabel: 'Track work items', route: '/issues', keywords: ['issues', 'issue', 'bugs', 'tasks', 'work'] },
-  { label: 'Writing', sublabel: 'Blog posts and drafts', route: '/longform', keywords: ['longform', 'blog', 'post', 'writing', 'draft', 'article'] },
+  { label: 'Docs', sublabel: 'Documents and notes', route: '/docs', keywords: ['docs', 'doc', 'longform', 'writing', 'draft', 'document'] },
   { label: 'Meetings', sublabel: 'Calendar and meeting notes', route: '/meetings', keywords: ['meetings', 'meeting', 'calendar'] },
   { label: 'Email', sublabel: 'Prioritized email', route: '/email', keywords: ['email', 'gmail', 'inbox', 'mail'] },
   { label: 'News', sublabel: 'News feed', route: '/news', keywords: ['news', 'feed'] },
   { label: 'People', sublabel: 'Coworkers, contacts, and org chart', route: '/people', keywords: ['people', 'coworkers', 'contacts', 'directory', 'team', 'org', 'chart'] },
   { label: 'GitHub', sublabel: 'Pull requests and code', route: '/github', keywords: ['github', 'pr', 'pull', 'code'] },
   { label: 'Claude', sublabel: 'Claude Code terminal', route: '/claude', keywords: ['claude', 'terminal', 'ai', 'personas', 'persona'] },
+  { label: 'Agent', sublabel: 'AI chat with dashboard tools', route: '/agent', keywords: ['agent', 'ai', 'chat', 'conversation', 'assistant'] },
+  { label: 'Sandbox', sublabel: 'Build mini web apps', route: '/sandbox', keywords: ['sandbox', 'apps', 'build', 'mini', 'web', 'app'] },
+  { label: 'New agent conversation', sublabel: 'Start a fresh chat with the agent', route: '/agent?new=1', keywords: ['new', 'agent', 'conversation', 'chat', 'start', 'fresh'] },
   { label: 'Slack', sublabel: 'Slack messages overview', route: '/slack', keywords: ['slack', 'messages', 'dms'] },
   { label: 'Notion', sublabel: 'Notion pages overview', route: '/notion', keywords: ['notion', 'docs', 'wiki'] },
   { label: 'Drive', sublabel: 'Google Drive files', route: '/drive', keywords: ['drive', 'google drive', 'files', 'documents'] },
@@ -259,15 +262,15 @@ export function SearchOverlay({ isOpen, onClose, onHelpOpen }: SearchOverlayProp
       });
     }
 
-    // Longform posts
+    // Docs
     for (const lf of r.longform ?? []) {
       flat.push({
-        category: 'Longform',
+        category: 'Docs',
         type: 'longform',
         id: String(lf.id),
         label: lf.title,
         sublabel: `${lf.status} \u2014 ${lf.word_count} words`,
-        navigateTo: `/longform?postId=${lf.id}`,
+        navigateTo: `/docs?postId=${lf.id}`,
         highlightHtml: lf.title_hl,
         fullText: lf.body_snippet_hl ?? undefined,
         date: lf.created_at,

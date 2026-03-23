@@ -16,3 +16,6 @@ anthropic>=0.40.0
 openai>=1.0.0
 msal>=1.28.0
 trafilatura>=2.0.0
+pypandoc>=1.13
+markdown>=3.5.0
+nh3>=0.2.0

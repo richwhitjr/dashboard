@@ -77,7 +77,7 @@ const GO_ROUTES: Record<string, string> = {
   d: '/',
   n: '/notes',
   i: '/issues',
-  l: '/longform',
+  l: '/docs',
   m: '/meetings',
   w: '/news',
   p: '/people',

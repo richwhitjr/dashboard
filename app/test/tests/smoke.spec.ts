@@ -23,7 +23,7 @@ test.describe('sidebar navigation', () => {
   const corePages = [
     { link: 'Thoughts', heading: 'Thoughts' },
     { link: 'Issues', heading: 'Issues' },
-    { link: 'Writing', heading: 'Longform' },
+    { link: 'Docs', heading: 'Docs' },
     { link: 'People', heading: 'People' },
   ];
 
@@ -106,7 +106,7 @@ test.describe('direct page loads', () => {
   const pages = [
     { path: '/notes', heading: 'Thoughts' },
     { path: '/issues', heading: 'Issues' },
-    { path: '/longform', heading: 'Longform' },
+    { path: '/docs', heading: 'Docs' },
     { path: '/people', heading: 'People' },
     { path: '/settings', heading: 'Settings' },
     { path: '/help', heading: '' },

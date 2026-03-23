@@ -9,7 +9,7 @@ import {
   useSaveAgentConversation,
   useCreateLongformFromAgentConversation,
 } from '../api/hooks';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { MarkdownRenderer } from '../components/shared/MarkdownRenderer';
 import { TimeAgo } from '../components/shared/TimeAgo';
 import type { AgentMessage, AgentToolCall } from '../api/types';
@@ -209,6 +209,8 @@ export function AgentPage() {
   // Tab management
   // ---------------------------------------------------------------------------
 
+  const [searchParams, setSearchParams] = useSearchParams();
+
   const addTab = useCallback((convId: number | null = null, label = 'New chat', saved = false) => {
     // If resuming, check if tab already open for this convId
     if (convId !== null) {
@@ -222,6 +224,15 @@ export function AgentPage() {
     setTabs(prev => [...prev, { id, convId, label, saved }]);
     setActiveTabId(id);
   }, [tabs]);
+
+  // Auto-open a new tab when navigated here with ?new=1
+  const newParam = searchParams.get('new');
+  useEffect(() => {
+    if (newParam === '1') {
+      addTab();
+      setSearchParams({}, { replace: true });
+    }
+  }, [newParam]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const closeTab = useCallback((tabId: string) => {
     const tab = tabs.find(t => t.id === tabId);
@@ -303,7 +314,7 @@ export function AgentPage() {
   const handleSaveAsDraft = useCallback(async () => {
     if (!activeConvId) return;
     const post = await createLongformFromConv.mutateAsync(activeConvId);
-    navigate(`/longform?postId=${post.id}`);
+    navigate(`/docs?postId=${post.id}`);
   }, [activeConvId, createLongformFromConv, navigate]);
 
   // ---------------------------------------------------------------------------
@@ -480,9 +491,9 @@ export function AgentPage() {
               className="auth-action-btn"
               onClick={handleSaveAsDraft}
               disabled={!activeConvId || createLongformFromConv.isPending}
-              title="Summarize and save as longform draft"
+              title="Summarize and save as doc"
             >
-              {createLongformFromConv.isPending ? 'Saving...' : 'Save as Draft'}
+              {createLongformFromConv.isPending ? 'Saving...' : 'Save as Doc'}
             </button>
           </div>
         )}

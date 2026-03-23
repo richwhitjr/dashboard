@@ -891,7 +891,8 @@ export interface LongformPost {
   id: number;
   title: string;
   body: string;
-  status: 'draft' | 'published';
+  status: 'active' | 'archived';
+  folder: string | null;
   tags: string[];
   people: { id: string; name: string }[];
   word_count: number;

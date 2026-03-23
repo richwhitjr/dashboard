@@ -94,15 +94,15 @@ export function HelpPage() {
       </section>
 
       <section className="help-section">
-        <h2>&ldquo;I need to write something longer&hellip;&rdquo;</h2>
+        <h2>&ldquo;I need to write or organize docs&hellip;&rdquo;</h2>
         <p>
-          The longform editor gives you a markdown writing space for blog posts,
-          drafts, and documents. Tag and filter posts, add comments and thoughts,
-          toggle between edit, preview, and split modes, and open any draft
+          Docs gives you a markdown editor for documents, notes, and references.
+          Organize with optional folders and tags, add comments and thoughts,
+          toggle between edit, preview, and split modes, and open any doc
           directly in Claude for help.
         </p>
         <div className="help-keys">
-          <kbd>g</kbd> <kbd>l</kbd> Writing
+          <kbd>g</kbd> <kbd>l</kbd> Docs
         </div>
       </section>
 

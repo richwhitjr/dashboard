@@ -41,12 +41,12 @@ from routers import (
     claude,
     claude_sessions,
     dashboard,
+    docs,
     drive_api,
     github_api,
     gmail,
     issue_discovery,
     issues,
-    longform,
     meetings,
     memory,
     news,
@@ -158,7 +158,7 @@ app.include_router(search.router)
 app.include_router(meetings.router)
 app.include_router(issues.router)
 app.include_router(issue_discovery.router)
-app.include_router(longform.router)
+app.include_router(docs.router)
 app.include_router(profile.router)
 app.include_router(personas.router)
 app.include_router(briefing.router)
