@@ -4135,6 +4135,8 @@ span.news-item-title {
 .keyboard-focused {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
+  position: relative;
+  z-index: 1;
 }
 
 .issue-created-flash {

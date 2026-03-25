@@ -3,7 +3,7 @@
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from connectors.mcp_client import call_granola_tool_sync
 from database import batch_upsert, get_write_db
@@ -21,6 +21,15 @@ _MEETING_BLOCK_RE = re.compile(r"<meeting\s[^>]*>.*?</meeting>", re.DOTALL)
 
 # Granola returns dates like "Mar 5, 2026 7:30 PM" — normalize to ISO 8601
 _HUMAN_DATE_FMT = "%b %d, %Y %I:%M %p"
+
+# Placeholder texts Granola uses when no real summary exists
+_PLACEHOLDER_SUMMARIES = {"no summary", "no summary available", "no summary yet"}
+
+# SQL fragment that matches any missing/placeholder summary value
+_EMPTY_SUMMARY_SQL = (
+    "(summary_plain IS NULL OR summary_plain = '' OR LOWER(summary_plain)"
+    " IN ('no summary', 'no summary available', 'no summary yet'))"
+)
 
 
 def _normalize_date(date_str: str) -> str:
@@ -80,12 +89,105 @@ def _parse_meetings_xml(raw: str) -> list[dict]:
     return meetings
 
 
+def _extract_notes_text(detail: dict) -> str:
+    """Extract summary text from a meeting detail dict, returning '' for placeholders."""
+    text = detail.get("summary", "") or detail.get("enhanced_notes", "") or detail.get("private_notes", "")
+    if not text or text.strip().lower() in _PLACEHOLDER_SUMMARIES:
+        return ""
+    return text
+
+
+def _meeting_has_ended(date_iso: str, buffer_hours: float = 1.5) -> bool:
+    """Return True if the meeting started more than buffer_hours ago (likely ended)."""
+    if not date_iso:
+        return False
+    try:
+        dt_str = date_iso.replace("+00:00", "").replace("Z", "")[:19]
+        meeting_dt = datetime.strptime(dt_str, "%Y-%m-%dT%H:%M:%S")
+        return meeting_dt < datetime.utcnow() - timedelta(hours=buffer_hours)
+    except ValueError:
+        return False
+
+
+def _fetch_and_update_summaries(ids: list[str]) -> int:
+    """Fetch summaries from Granola for the given meeting IDs and update DB.
+
+    Only updates rows where a real (non-placeholder) summary is returned.
+    Returns the number of meetings updated.
+    """
+    if not ids:
+        return 0
+
+    details_map: dict = {}
+    for i in range(0, len(ids), 10):
+        batch = ids[i : i + 10]
+        try:
+            detail_raw = call_granola_tool_sync("get_meetings", {"meeting_ids": batch})
+            for detail in _parse_meetings_xml(detail_raw):
+                if detail.get("id"):
+                    details_map[detail["id"]] = detail
+        except Exception as e:
+            logger.warning("Could not fetch Granola details for resync batch starting at %d: %s", i, e)
+
+    updated = 0
+    with get_write_db() as db:
+        for mid, detail in details_map.items():
+            notes_text = _extract_notes_text(detail)
+            if not notes_text:
+                continue
+            db.execute(
+                "UPDATE meeting_notes_external SET summary_html = ?, summary_plain = ? WHERE id = ?",
+                (notes_text, notes_text, mid),
+            )
+            db.execute(
+                "UPDATE granola_meetings SET panel_summary_html = ?, panel_summary_plain = ? WHERE id = ?",
+                (notes_text, notes_text, mid),
+            )
+            updated += 1
+        db.commit()
+
+    logger.info("Granola resync: updated summaries for %d/%d meetings", updated, len(ids))
+    return updated
+
+
+def resync_missing_summaries(limit: int = 500) -> int:
+    """Re-fetch summaries for all historical Granola meetings with empty summaries.
+
+    Only processes meetings that have likely ended (started > 1.5 hours ago).
+    Returns the number of meetings updated.
+    """
+    logger.info("Granola resync: starting missing summary scan (limit=%d)", limit)
+    from database import get_db
+
+    with get_db() as db:
+        rows = db.execute(
+            """SELECT id FROM meeting_notes_external
+               WHERE provider = 'granola'
+                 AND {_EMPTY_SUMMARY_SQL}
+                 AND datetime(created_at) < datetime('now', '-2 hours')
+               ORDER BY created_at DESC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+
+    ids = [r["id"] for r in rows]
+    if not ids:
+        logger.info("Granola resync: no meetings with missing summaries")
+        return 0
+
+    logger.info("Granola resync: re-fetching summaries for %d meetings", len(ids))
+    return _fetch_and_update_summaries(ids)
+
+
 def sync_granola_meetings(
     time_range: str = "last_30_days",
     custom_start: str | None = None,
     custom_end: str | None = None,
 ) -> int:
     """Fetch meetings from Granola MCP server and upsert into DB.
+
+    Also re-syncs summaries for any recently-ended meetings in the current window
+    that are still missing them (e.g. synced while the meeting was in progress).
 
     Args:
         time_range: One of "this_week", "last_week", "last_30_days", "custom".
@@ -140,10 +242,10 @@ def sync_granola_meetings(
                 for detail in details:
                     if detail.get("id"):
                         details_map[detail["id"]] = detail
-            except Exception:
-                logger.debug("Could not fetch details for meetings batch %d", i)
+            except Exception as e:
+                logger.warning("Could not fetch Granola details for new meetings batch %d: %s", i, e)
 
-    # Only build rows for NEW meetings
+    # Build insert rows for new meetings
     rows = []
     for m in meetings_list:
         mid = m.get("id", "")
@@ -157,8 +259,7 @@ def sync_granola_meetings(
         granola_link = f"https://notes.granola.ai/d/{mid}"
 
         detail = details_map.get(mid, {})
-        # XML format has "summary", JSON format had "enhanced_notes"/"private_notes"
-        notes_text = detail.get("summary", "") or detail.get("enhanced_notes", "") or detail.get("private_notes", "")
+        notes_text = _extract_notes_text(detail)
 
         date_iso = _normalize_date(m.get("date", m.get("created_at", "")))
         rows.append(
@@ -179,25 +280,21 @@ def sync_granola_meetings(
             )
         )
 
-    if not rows:
-        return 0
+    if rows:
+        with get_write_db() as db:
+            batch_upsert(
+                db,
+                """INSERT OR REPLACE INTO granola_meetings
+                   (id, title, created_at, updated_at, calendar_event_id,
+                    calendar_event_summary, attendees_json, panel_summary_html,
+                    panel_summary_plain, transcript_text, granola_link,
+                    person_id, valid_meeting)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                rows,
+            )
 
-    with get_write_db() as db:
-        batch_upsert(
-            db,
-            """INSERT OR REPLACE INTO granola_meetings
-               (id, title, created_at, updated_at, calendar_event_id,
-                calendar_event_summary, attendees_json, panel_summary_html,
-                panel_summary_plain, transcript_text, granola_link,
-                person_id, valid_meeting)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            rows,
-        )
-
-        # Dual-write to provider-agnostic meeting_notes_external table
-        external_rows = []
-        for r in rows:
-            external_rows.append(
+            # Dual-write to provider-agnostic meeting_notes_external table
+            external_rows = [
                 (
                     r[0],  # id
                     "granola",  # provider
@@ -214,15 +311,40 @@ def sync_granola_meetings(
                     r[12],  # valid_meeting
                     "{}",  # raw_metadata
                 )
+                for r in rows
+            ]
+            batch_upsert(
+                db,
+                """INSERT OR REPLACE INTO meeting_notes_external
+                   (id, provider, title, created_at, updated_at, calendar_event_id,
+                    attendees_json, summary_html, summary_plain, transcript_text,
+                    external_link, person_id, valid_meeting, raw_metadata)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                external_rows,
             )
-        batch_upsert(
-            db,
-            """INSERT OR REPLACE INTO meeting_notes_external
-               (id, provider, title, created_at, updated_at, calendar_event_id,
-                attendees_json, summary_html, summary_plain, transcript_text,
-                external_link, person_id, valid_meeting, raw_metadata)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            external_rows,
-        )
+
+    # Re-sync summaries for existing meetings in this window that ended but are still missing them.
+    # This handles the case where a meeting was synced while in progress.
+    ended_missing: list[str] = []
+    if existing_ids:
+        date_by_id = {
+            m["id"]: _normalize_date(m.get("date", m.get("created_at", "")))
+            for m in meetings_list
+            if m.get("id") and m["id"] in existing_ids
+        }
+        ended_candidates = [mid for mid, d in date_by_id.items() if _meeting_has_ended(d)]
+
+        if ended_candidates:
+            with get_db() as db:
+                placeholders = ",".join("?" * len(ended_candidates))
+                missing_rows = db.execute(
+                    f"SELECT id FROM meeting_notes_external WHERE id IN ({placeholders}) AND {_EMPTY_SUMMARY_SQL}",
+                    tuple(ended_candidates),
+                ).fetchall()
+            ended_missing = [r["id"] for r in missing_rows]
+
+    if ended_missing:
+        logger.info("Granola: %d ended meetings missing summaries — re-fetching", len(ended_missing))
+        _fetch_and_update_summaries(ended_missing)
 
     return len(rows)

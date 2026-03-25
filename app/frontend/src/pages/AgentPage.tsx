@@ -421,8 +421,19 @@ export function AgentPage() {
       }
     } catch (err) {
       if ((err as Error).name !== 'AbortError') {
-        streamState.text = `Error: ${(err as Error).message}`;
-        setStreaming({ ...streamState });
+        const errorText = `Error: ${(err as Error).message}`;
+        // Add error as a persistent message in the cache so it survives setStreaming(null)
+        queryClient.setQueryData<AgentMessage[]>(['agent-messages', convId], (old) => [
+          ...(old ?? []),
+          {
+            id: -Date.now() - 1,
+            conversation_id: convId!,
+            role: 'assistant' as const,
+            content: errorText,
+            tool_calls: [],
+            created_at: new Date().toISOString(),
+          },
+        ]);
       }
     } finally {
       setStreaming(null);

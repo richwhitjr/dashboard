@@ -255,7 +255,12 @@ async def chat_sse(conv_id: int, req: ChatRequest):
         task = asyncio.create_task(run_agent())
         try:
             while True:
-                item = await queue.get()
+                try:
+                    item = await asyncio.wait_for(asyncio.shield(queue.get()), timeout=15.0)
+                except asyncio.TimeoutError:
+                    # Send a keepalive comment to prevent proxy/browser from closing the connection
+                    yield ": keepalive\n\n"
+                    continue
                 if item is _SENTINEL:
                     break
                 yield item

@@ -128,9 +128,11 @@ def _check_github() -> dict:
     """Check GitHub auth via gh CLI token."""
     import subprocess
 
+    from connectors.github import _find_gh
+
     result = {"configured": False, "connected": False, "error": None, "detail": None}
     try:
-        proc = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=5)
+        proc = subprocess.run([_find_gh(), "auth", "token"], capture_output=True, text=True, timeout=5)
         if proc.returncode == 0 and proc.stdout.strip():
             result["configured"] = True
             import httpx

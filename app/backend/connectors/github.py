@@ -1,6 +1,8 @@
 """GitHub REST API connector for PR sync."""
 
 import json
+import os
+import shutil
 import subprocess
 
 import httpx
@@ -12,6 +14,23 @@ GITHUB_API_BASE = "https://api.github.com"
 
 _cached_token: str | None = None
 
+# Common install locations for gh CLI on macOS
+_GH_FALLBACK_PATHS = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"]
+
+
+def _find_gh() -> str:
+    """Return path to gh CLI, searching PATH and common Homebrew locations."""
+    # Try with an augmented PATH that includes Homebrew
+    augmented_env = os.environ.copy()
+    augmented_env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + augmented_env.get("PATH", "")
+    found = shutil.which("gh", path=augmented_env["PATH"])
+    if found:
+        return found
+    for path in _GH_FALLBACK_PATHS:
+        if os.path.isfile(path):
+            return path
+    return "gh"  # fall back to bare name; will raise FileNotFoundError if missing
+
 
 def _get_token() -> str:
     """Get GitHub token from gh CLI auth. Cached after first call."""
@@ -19,7 +38,7 @@ def _get_token() -> str:
     if _cached_token:
         return _cached_token
     result = subprocess.run(
-        ["gh", "auth", "token"],
+        [_find_gh(), "auth", "token"],
         capture_output=True,
         text=True,
         timeout=5,

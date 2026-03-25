@@ -19,13 +19,29 @@ router = APIRouter(prefix="/api/sync", tags=["sync"])
 
 _sync_lock = threading.Lock()
 _sync_running = False
+_sync_started_at: float | None = None  # time.monotonic() timestamp when sync began
 _sync_active_sources: set[str] = set()
 _sync_cancel = threading.Event()
+
+MAX_SYNC_SECONDS = 600  # 10 minutes — force-reset if sync appears stuck (e.g. laptop sleep)
 
 # Auto-sync background scheduler
 _auto_sync_thread: threading.Thread | None = None
 _auto_sync_stop = threading.Event()
 DEFAULT_AUTO_SYNC_INTERVAL = 900  # 15 minutes
+
+
+def _check_stale_sync_unlocked():
+    """Reset _sync_running if it has been stuck too long. Must be called with _sync_lock held."""
+    global _sync_running, _sync_started_at
+    if _sync_running and _sync_started_at is not None:
+        elapsed = time.monotonic() - _sync_started_at
+        if elapsed > MAX_SYNC_SECONDS:
+            logger.warning("Sync appears stuck (%.0fs elapsed); resetting sync state", elapsed)
+            _sync_running = False
+            _sync_started_at = None
+            _sync_active_sources.clear()
+            _sync_cancel.set()  # signal any surviving threads to stop
 
 
 def _update_sync_state(source: str, status: str, error: str | None, items: int, elapsed: float | None = None):
@@ -155,9 +171,11 @@ def sync_granola():
         return
     t0 = time.monotonic()
     try:
-        from connectors.granola import sync_granola_meetings
+        from connectors.granola import resync_missing_summaries, sync_granola_meetings
 
         count = sync_granola_meetings()
+        # Backfill any historical meetings that are missing summaries
+        resync_missing_summaries()
         _update_sync_state("granola", "success", None, count, elapsed=time.monotonic() - t0)
     except ImportError:
         _update_sync_state("granola", "error", "Granola connector not yet implemented", 0)
@@ -478,7 +496,7 @@ def _run_group(fns: list[tuple[str, callable]], max_workers: int = 3):
 
 
 def _run_full_sync():
-    global _sync_running
+    global _sync_running, _sync_started_at
     _sync_cancel.clear()
     _sync_active_sources.clear()
     try:
@@ -579,6 +597,7 @@ def _run_full_sync():
     finally:
         _sync_active_sources.clear()
         _sync_running = False
+        _sync_started_at = None
 
 
 # ---------------------------------------------------------------------------
@@ -618,7 +637,7 @@ def _should_skip_auto_sync(interval: int) -> bool:
 
 def _auto_sync_loop():
     """Background thread: wait for interval, then trigger full sync."""
-    global _sync_running
+    global _sync_running, _sync_started_at
     logger.info("Auto-sync thread started")
     while not _auto_sync_stop.is_set():
         interval = _get_auto_sync_interval()
@@ -641,10 +660,12 @@ def _auto_sync_loop():
             continue
 
         with _sync_lock:
+            _check_stale_sync_unlocked()
             if _sync_running:
                 logger.debug("Auto-sync skipped — sync already in progress")
                 continue
             _sync_running = True
+            _sync_started_at = time.monotonic()
 
         logger.info("Auto-sync starting")
         try:
@@ -672,11 +693,13 @@ def stop_auto_sync():
 
 @router.post("")
 def trigger_sync(background_tasks: BackgroundTasks):
-    global _sync_running
+    global _sync_running, _sync_started_at
     with _sync_lock:
+        _check_stale_sync_unlocked()
         if _sync_running:
             return {"status": "already_running"}
         _sync_running = True
+        _sync_started_at = time.monotonic()
     background_tasks.add_task(_run_full_sync)
     return {"status": "started"}
 
@@ -726,13 +749,20 @@ def trigger_source_sync(source: str, background_tasks: BackgroundTasks, org_only
 
 @router.get("/status")
 def get_sync_status():
-    global _sync_running
+    with _sync_lock:
+        _check_stale_sync_unlocked()
+        running = _sync_running
+        started_at = _sync_started_at
+        active = sorted(_sync_active_sources)
+
+    elapsed = round(time.monotonic() - started_at) if started_at is not None else None
     with get_db_connection(readonly=True) as db:
         rows = db.execute("SELECT * FROM sync_state").fetchall()
     interval = _get_auto_sync_interval()
     return {
-        "running": _sync_running,
-        "active_sources": sorted(_sync_active_sources),
+        "running": running,
+        "active_sources": active,
+        "elapsed_seconds": elapsed,
         "sources": {row["source"]: dict(row) for row in rows},
         "auto_sync": {
             "enabled": interval is not None,
