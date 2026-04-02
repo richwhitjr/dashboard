@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, type CSSProperties } from 'react';
+
 import { useSearchParams } from 'react-router-dom';
 import { useMeetings, useUpsertMeetingNote, useDeleteMeetingNote, useDismissPrioritizedItem, useProfile, useAllMeetingNotes } from '../api/hooks';
 import type { MeetingWithContext } from '../api/types';
@@ -6,6 +7,12 @@ import { useFocusNavigation } from '../hooks/useFocusNavigation';
 import { KeyboardHints } from '../components/shared/KeyboardHints';
 import { InfiniteScrollSentinel } from '../components/shared/InfiniteScrollSentinel';
 import { sanitizeHtml } from '../utils/sanitize';
+
+const GCAL_COLORS: Record<string, string> = {
+  '1': '#7986CB', '2': '#33B679', '3': '#8E24AA', '4': '#E67C73',
+  '5': '#F6BF26', '6': '#F4511E', '7': '#039BE5', '8': '#616161',
+  '9': '#3F51B5', '10': '#0B8043', '11': '#D50000',
+};
 
 const TZ = 'America/New_York';
 
@@ -297,8 +304,13 @@ function MeetingRow({
     setExpanded(!expanded);
   };
 
+  const eventColor = meeting.color_id ? GCAL_COLORS[meeting.color_id] : undefined;
+
   return (
-    <div className="meeting-entry">
+    <div
+      className="meeting-entry"
+      style={eventColor ? { '--event-color': eventColor, borderLeft: '3px solid var(--event-color)' } as CSSProperties : undefined}
+    >
       {/* Header: title left, time right */}
       <div className="meeting-row-header" onClick={handleHeaderClick}>
         <div className="meeting-row-title">
@@ -566,6 +578,7 @@ function DayCalendarView({
         {positioned.map(({ meeting, top, height, overlap }) => {
           const widthPct = 100 / overlap.totalCols;
           const leftPct = overlap.col * widthPct;
+          const eventColor = meeting.color_id ? GCAL_COLORS[meeting.color_id] : undefined;
           return (
             <div
               key={meeting.event_id || meeting.granola_id || meeting.start_time}
@@ -575,6 +588,7 @@ function DayCalendarView({
                 height,
                 left: `${leftPct}%`,
                 width: `${widthPct}%`,
+                ...(eventColor ? { '--event-color': eventColor } as CSSProperties : {}),
               }}
               onClick={() => onOpenModal(meeting)}
             >

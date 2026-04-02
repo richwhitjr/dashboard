@@ -92,6 +92,7 @@ def sync_calendar_events() -> int:
                 event.get("htmlLink", ""),
                 status,
                 self_response,
+                event.get("colorId", ""),
             )
         )
 
@@ -103,8 +104,8 @@ def sync_calendar_events() -> int:
             """INSERT OR REPLACE INTO calendar_events
                (id, summary, description, location, start_time, end_time, all_day,
                 attendees_json, organizer_email, calendar_id, html_link,
-                status, self_response)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                status, self_response, color_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
 

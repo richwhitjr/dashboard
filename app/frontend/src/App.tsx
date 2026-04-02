@@ -31,7 +31,7 @@ const DocsPage = lazy(() => import('./pages/DocsPage').then(m => ({ default: m.D
 const SlackPage = lazy(() => import('./pages/SlackPage').then(m => ({ default: m.SlackPage })));
 const NotionPage = lazy(() => import('./pages/NotionPage').then(m => ({ default: m.NotionPage })));
 const EmailPage = lazy(() => import('./pages/EmailPage').then(m => ({ default: m.EmailPage })));
-const RampPage = lazy(() => import('./pages/RampPage').then(m => ({ default: m.RampPage })));
+const SpendingPage = lazy(() => import('./pages/SpendingPage').then(m => ({ default: m.SpendingPage })));
 const HelpPage = lazy(() => import('./pages/HelpPage').then(m => ({ default: m.HelpPage })));
 const SetupPage = lazy(() => import('./pages/SetupPage').then(m => ({ default: m.SetupPage })));
 
@@ -165,9 +165,11 @@ function AppContent() {
               <Route path="/notion" element={<NotionPage />} />
               <Route path="/drive" element={<DrivePage />} />
               <Route path="/obsidian" element={<ObsidianPage />} />
-              <Route path="/ramp" element={<RampPage />} />
-              <Route path="/ramp/bills" element={<RampPage />} />
-              <Route path="/ramp/projects" element={<RampPage />} />
+              <Route path="/finance" element={<SpendingPage />} />
+              <Route path="/spending" element={<Navigate to="/finance" replace />} />
+              <Route path="/ramp" element={<Navigate to="/finance" replace />} />
+              <Route path="/ramp/bills" element={<Navigate to="/finance" replace />} />
+              <Route path="/ramp/projects" element={<Navigate to="/finance" replace />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/personas" element={<Navigate to="/claude" replace />} />
 

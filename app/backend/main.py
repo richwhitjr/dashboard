@@ -63,6 +63,7 @@ from routers import (
     search,
     sheets_api,
     slack_api,
+    spending_api,
     status_context,
     sync,
     weather,
@@ -151,6 +152,8 @@ app.include_router(notion_api.router)
 app.include_router(obsidian_api.router)
 app.include_router(github_api.router)
 app.include_router(ramp_api.router)
+app.include_router(spending_api.router, prefix="/api/spending")
+app.include_router(spending_api.router, prefix="/api/ramp")
 app.include_router(projects_api.router)
 app.include_router(drive_api.router)
 app.include_router(sheets_api.router)

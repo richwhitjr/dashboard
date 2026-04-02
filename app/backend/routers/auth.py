@@ -184,6 +184,29 @@ def _check_ramp() -> dict:
     return result
 
 
+def _check_lunchmoney() -> dict:
+    """Check LunchMoney auth status by calling /v1/me."""
+    result = {"configured": False, "connected": False, "error": None, "detail": None}
+    token = get_secret("LUNCHMONEY_TOKEN") or ""
+
+    if not token:
+        result["detail"] = "LUNCHMONEY_TOKEN not configured"
+        return result
+
+    result["configured"] = True
+    try:
+        from connectors.lunchmoney import check_lunchmoney_connection
+
+        check = check_lunchmoney_connection()
+        result["connected"] = check["connected"]
+        result["error"] = check.get("error")
+        result["detail"] = check.get("detail")
+    except Exception as e:
+        result["error"] = str(e)
+
+    return result
+
+
 def _check_microsoft() -> dict:
     """Check Microsoft 365 auth status by validating credentials."""
     from connectors.microsoft_auth import TOKEN_PATH as MS_TOKEN_PATH
@@ -358,6 +381,7 @@ _AUTH_TO_SYNC = {
     "granola": ["granola"],
     "github": ["github"],
     "ramp": ["ramp", "ramp_vendors", "ramp_bills"],
+    "lunchmoney": ["lunchmoney"],
     "obsidian": ["obsidian"],
 }
 
@@ -368,6 +392,7 @@ _SECRET_TO_SYNC = {
     "NOTION_TOKEN": ["notion", "notion_meetings"],
     "RAMP_CLIENT_ID": ["ramp", "ramp_vendors", "ramp_bills"],
     "RAMP_CLIENT_SECRET": ["ramp", "ramp_vendors", "ramp_bills"],
+    "LUNCHMONEY_TOKEN": ["lunchmoney"],
     "GOOGLE_CLIENT_ID": ["gmail", "calendar", "drive", "sheets", "docs"],
     "GOOGLE_CLIENT_SECRET": ["gmail", "calendar", "drive", "sheets", "docs"],
     "MICROSOFT_CLIENT_ID": ["outlook_email", "outlook_calendar", "onedrive"],
@@ -385,6 +410,7 @@ _CONNECTOR_TO_SYNC = {
     "granola": ["granola"],
     "github": ["github"],
     "ramp": ["ramp", "ramp_vendors", "ramp_bills"],
+    "lunchmoney": ["lunchmoney"],
     "news": ["news"],
     "obsidian": ["obsidian"],
 }
@@ -418,6 +444,7 @@ def auth_status():
         "granola": _check_granola(),
         "github": _check_github(),
         "ramp": _check_ramp(),
+        "lunchmoney": _check_lunchmoney(),
         "claude_code": _check_claude_code(),
         "obsidian": _check_obsidian(),
     }
@@ -541,6 +568,7 @@ def test_connection(service: str):
         "granola": _check_granola,
         "github": _check_github,
         "ramp": _check_ramp,
+        "lunchmoney": _check_lunchmoney,
         "claude_code": _check_claude_code,
         "news": _check_news,
         "obsidian": _check_obsidian,

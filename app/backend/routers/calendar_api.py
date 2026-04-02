@@ -62,6 +62,7 @@ def _event_to_dict(event: dict) -> dict:
         "status": event.get("status", ""),
         "recurring_event_id": event.get("recurringEventId"),
         "conference_data": event.get("conferenceData", {}).get("entryPoints", []),
+        "color_id": event.get("colorId", ""),
     }
 
 

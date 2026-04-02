@@ -41,6 +41,9 @@ import type {
   EmailThreadDetail,
   RampData,
   RampBillsResponse,
+  SpendingData,
+  SpendingBillsResponse,
+  SpendingEntriesResponse,
   Project,
   ProjectsResponse,
   PrioritizedNewsData,
@@ -472,9 +475,38 @@ export function useUpdateIssue() {
       person_ids?: string[];
       meeting_ids?: { ref_type: string; ref_id: string }[];
     }) => api.patch<Issue>(`/issues/${id}`, update),
-    onSuccess: () => {
+    onMutate: ({ id }) => {
+      const allQueries = qc.getQueriesData<Issue[]>({ queryKey: ['issues'] });
+      let prev: Issue | undefined;
+      for (const [, data] of allQueries) {
+        if (!data) continue;
+        prev = data.find((i) => i.id === id);
+        if (prev) break;
+      }
+      return { prev };
+    },
+    onSuccess: (_data, vars, context) => {
       qc.invalidateQueries({ queryKey: ['issues'] });
       qc.invalidateQueries({ queryKey: ['person'] });
+      const prev = context?.prev;
+      if (!prev) return;
+      const { id, person_ids, meeting_ids, tags, ...simpleUpdate } = vars;
+      const undoUpdate: Record<string, unknown> = {};
+      for (const key of Object.keys(simpleUpdate)) undoUpdate[key] = prev[key as keyof Issue];
+      if (person_ids !== undefined) undoUpdate.person_ids = prev.people.map((p) => p.id);
+      if (meeting_ids !== undefined) undoUpdate.meeting_ids = prev.meetings.map((m) => ({ ref_type: m.ref_type, ref_id: m.ref_id }));
+      if (tags !== undefined) undoUpdate.tags = [...prev.tags];
+      if (Object.keys(undoUpdate).length === 0) return;
+      let label = 'issue updated';
+      if ('status' in simpleUpdate) label = simpleUpdate.status === 'done' ? 'issue completed' : `issue marked ${simpleUpdate.status}`;
+      pushUndo({
+        label,
+        undo: async () => {
+          await api.patch(`/issues/${id}`, undoUpdate);
+          qc.invalidateQueries({ queryKey: ['issues'] });
+          qc.invalidateQueries({ queryKey: ['person'] });
+        },
+      });
     },
   });
 }
@@ -483,11 +515,43 @@ export function useDeleteIssue() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => api.delete(`/issues/${id}`),
-    onSuccess: () => {
+    onMutate: (id) => {
+      const allQueries = qc.getQueriesData<Issue[]>({ queryKey: ['issues'] });
+      let prev: Issue | undefined;
+      for (const [, data] of allQueries) {
+        if (!data) continue;
+        prev = data.find((i) => i.id === id);
+        if (prev) break;
+      }
+      return { prev };
+    },
+    onSuccess: (_data, _id, context) => {
       qc.invalidateQueries({ queryKey: ['issues'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
       qc.invalidateQueries({ queryKey: ['person'] });
       qc.invalidateQueries({ queryKey: ['search'] });
+      const prev = context?.prev;
+      if (!prev) return;
+      pushUndo({
+        label: 'issue deleted',
+        undo: async () => {
+          await api.post('/issues', {
+            title: prev.title,
+            description: prev.description,
+            priority: prev.priority,
+            tshirt_size: prev.tshirt_size,
+            person_ids: prev.people.map((p) => p.id),
+            meeting_ids: prev.meetings.map((m) => ({ ref_type: m.ref_type, ref_id: m.ref_id })),
+            project_id: prev.project_id,
+            tags: prev.tags,
+            due_date: prev.due_date,
+          });
+          qc.invalidateQueries({ queryKey: ['issues'] });
+          qc.invalidateQueries({ queryKey: ['dashboard'] });
+          qc.invalidateQueries({ queryKey: ['person'] });
+          qc.invalidateQueries({ queryKey: ['search'] });
+        },
+      });
     },
   });
 }
@@ -1339,6 +1403,132 @@ export function useAssignBillProject() {
       qc.invalidateQueries({ queryKey: ['ramp-bills'] });
       qc.invalidateQueries({ queryKey: ['projects'] });
     },
+  });
+}
+
+// --- Spending (generalized multi-connector hooks) ---
+
+export function usePrioritizedSpending(days: number = 7, orgOnly: boolean = true) {
+  return useQuery({
+    queryKey: ['spending-prioritized', days, orgOnly],
+    queryFn: () => api.get<SpendingData>(`/spending/prioritized?days=${days}&org_only=${orgOnly}`),
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
+export function useRefreshPrioritizedSpending(days: number = 7, orgOnly: boolean = true) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.get<SpendingData>(`/spending/prioritized?refresh=true&days=${days}&org_only=${orgOnly}`),
+    onSuccess: (data) => {
+      qc.setQueryData<SpendingData>(['spending-prioritized', days, orgOnly], data);
+      if (data.stale) {
+        setTimeout(() => qc.invalidateQueries({ queryKey: ['spending-prioritized', days, orgOnly] }), 5000);
+      }
+    },
+  });
+}
+
+export function useSpendingBills(filters?: { days?: number; status?: string; project_id?: number; vendor_id?: string; source?: string }) {
+  const params = new URLSearchParams();
+  if (filters?.days) params.set('days', String(filters.days));
+  if (filters?.status) params.set('status', filters.status);
+  if (filters?.project_id != null) params.set('project_id', String(filters.project_id));
+  if (filters?.vendor_id) params.set('vendor_id', filters.vendor_id);
+  if (filters?.source) params.set('source', filters.source);
+  const qs = params.toString();
+  return useQuery({
+    queryKey: ['spending-bills', filters],
+    queryFn: () => api.get<SpendingBillsResponse>(`/spending/bills${qs ? '?' + qs : ''}`),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useAssignSpendingBillProject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ billId, projectId }: { billId: string; projectId: number | null }) =>
+      api.patch(`/spending/bills/${billId}/project`, { project_id: projectId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['spending-bills'] });
+      qc.invalidateQueries({ queryKey: ['ramp-bills'] });
+      qc.invalidateQueries({ queryKey: ['projects'] });
+    },
+  });
+}
+
+export function useSpendingEntries(filters?: { days?: number; transaction_type?: string; direction?: string; source?: string; project_id?: number; limit?: number; q?: string }) {
+  const params = new URLSearchParams();
+  if (filters?.days) params.set('days', String(filters.days));
+  if (filters?.transaction_type) params.set('transaction_type', filters.transaction_type);
+  if (filters?.direction) params.set('direction', filters.direction);
+  if (filters?.source) params.set('source', filters.source);
+  if (filters?.project_id != null) params.set('project_id', String(filters.project_id));
+  if (filters?.limit) params.set('limit', String(filters.limit));
+  if (filters?.q) params.set('q', filters.q);
+  const qs = params.toString();
+  return useQuery({
+    queryKey: ['spending-entries', filters],
+    queryFn: () => api.get<SpendingEntriesResponse>(`/spending/entries${qs ? '?' + qs : ''}`),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+const SPENDING_ENTRIES_PAGE_SIZE = 100;
+
+export function useAllSpendingEntries(params: {
+  days?: number;
+  q?: string;
+  from_date?: string;
+  to_date?: string;
+  transaction_type?: string;
+  direction?: string;
+  source?: string;
+  person?: string;
+}) {
+  const { days = 365, q, from_date, to_date, transaction_type, direction, source, person } = params;
+  return useInfiniteQuery({
+    queryKey: ['spending-entries-all', days, q, from_date, to_date, transaction_type, direction, source, person],
+    queryFn: async ({ pageParam = 0 }) => {
+      const p = new URLSearchParams();
+      p.set('limit', String(SPENDING_ENTRIES_PAGE_SIZE));
+      p.set('offset', String(pageParam));
+      if (from_date || to_date) {
+        if (from_date) p.set('from_date', from_date);
+        if (to_date) p.set('to_date', to_date);
+      } else {
+        p.set('days', String(days));
+      }
+      if (q) p.set('q', q);
+      if (transaction_type) p.set('transaction_type', transaction_type);
+      if (direction) p.set('direction', direction);
+      if (source) p.set('source', source);
+      if (person) p.set('person', person);
+      const data = await api.get<SpendingEntriesResponse>(`/spending/entries?${p}`);
+      return data;
+    },
+    initialPageParam: 0,
+    getNextPageParam: (last, all) => {
+      const loaded = all.reduce((s, p) => s + p.entries.length, 0);
+      return last.has_more ? loaded : undefined;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useSpendingVendors(q?: string) {
+  return useQuery({
+    queryKey: ['spending-vendors', q],
+    queryFn: () => api.get<{ vendors: string[] }>(`/spending/entries/vendors${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+    staleTime: 60_000,
+  });
+}
+
+export function useSpendingPeople(q?: string) {
+  return useQuery({
+    queryKey: ['spending-people', q],
+    queryFn: () => api.get<{ people: string[] }>(`/spending/entries/people${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+    staleTime: 60_000,
   });
 }
 

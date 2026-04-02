@@ -161,7 +161,7 @@ def resync_missing_summaries(limit: int = 500) -> int:
 
     with get_db() as db:
         rows = db.execute(
-            """SELECT id FROM meeting_notes_external
+            f"""SELECT id FROM meeting_notes_external
                WHERE provider = 'granola'
                  AND {_EMPTY_SUMMARY_SQL}
                  AND datetime(created_at) < datetime('now', '-2 hours')

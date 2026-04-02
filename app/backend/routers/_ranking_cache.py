@@ -66,8 +66,8 @@ def rerank_stale_sources():
     from routers.notion_api import rerank_notion
     from routers.obsidian_api import rerank_obsidian
     from routers.priorities import rerank_priorities
-    from routers.ramp_api import rerank_ramp
     from routers.slack_api import rerank_slack
+    from routers.spending_api import rerank_ramp
 
     sources = [
         ("email", rerank_email),

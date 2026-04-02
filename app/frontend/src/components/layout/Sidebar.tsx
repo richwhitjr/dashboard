@@ -17,7 +17,6 @@ function formatTimeAgo(iso: string) {
 
 export function Sidebar() {
   const { pathname } = useLocation();
-  const onRampPage = pathname.startsWith('/ramp');
   const onClaudePage = pathname.startsWith('/claude');
   const { data: personas } = usePersonas();
   const { data: employees } = usePeople();
@@ -135,7 +134,7 @@ export function Sidebar() {
           {(active.has('google') || active.has('granola')) && <NavLink to="/meetings">Meetings</NavLink>}
         </nav>
 
-        {(active.has('google') || active.has('slack') || active.has('notion') || active.has('github') || active.has('ramp') || active.has('news') || active.has('google_drive') || active.has('obsidian')) && (
+        {(active.has('google') || active.has('slack') || active.has('notion') || active.has('github') || active.has('ramp') || active.has('lunchmoney') || active.has('news') || active.has('google_drive') || active.has('obsidian')) && (
           <>
             <div className="sidebar-section-label">sources</div>
             <nav>
@@ -146,13 +145,9 @@ export function Sidebar() {
               {active.has('notion') && <NavLink to="/notion">Notion</NavLink>}
               {active.has('google_drive') && <NavLink to="/drive">Drive</NavLink>}
               {active.has('obsidian') && <NavLink to="/obsidian">Obsidian</NavLink>}
-              {active.has('ramp') && <>
-                <NavLink to="/ramp" end>Ramp</NavLink>
-                {onRampPage && <>
-                  <NavLink to="/ramp/bills" className="sidebar-sub-link">Bills</NavLink>
-                  <NavLink to="/ramp/projects" className="sidebar-sub-link">Projects</NavLink>
-                </>}
-              </>}
+              {(active.has('ramp') || active.has('lunchmoney')) && (
+                <NavLink to="/finance">Finance</NavLink>
+              )}
             </nav>
           </>
         )}
@@ -403,6 +398,9 @@ export function Sidebar() {
         <div className="sidebar-shortcut-hint">
           <NavLink to="/help" className="sidebar-help-icon" title="Help &amp; intro">?</NavLink>
           <kbd>?</kbd> shortcuts &middot; <kbd>&#x2318;K</kbd> search
+        </div>
+        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-light)', opacity: 0.5, marginTop: 'var(--space-xs)' }}>
+          {__APP_VERSION__}
         </div>
       </div>
 

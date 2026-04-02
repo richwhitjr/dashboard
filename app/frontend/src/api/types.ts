@@ -210,6 +210,7 @@ export interface CalendarEvent {
   all_day: boolean;
   attendees_json?: string;
   html_link?: string;
+  color_id?: string;
 }
 
 export interface Email {
@@ -410,6 +411,7 @@ export interface AuthStatus {
   granola: ServiceAuthStatus;
   github: ServiceAuthStatus;
   ramp: ServiceAuthStatus;
+  lunchmoney: ServiceAuthStatus;
 }
 
 export interface NewsItem {
@@ -578,6 +580,7 @@ export interface MeetingWithContext {
   attendees_json?: string;
   html_link?: string;
   description?: string;
+  color_id?: string;
   notes_title?: string;
   notes_summary_html?: string;
   notes_summary_plain?: string;
@@ -822,9 +825,13 @@ export interface RampTransaction {
   memo: string | null;
   status: string;
   ramp_url: string | null;
+  source: string;
   priority_score: number;
   priority_reason: string;
 }
+
+// Generic alias — use in new code that works across all spending connectors
+export type SpendingTransaction = RampTransaction;
 
 export interface RampData {
   items: RampTransaction[];
@@ -832,6 +839,8 @@ export interface RampData {
   error?: string;
   stale?: boolean;
 }
+
+export type SpendingData = RampData;
 
 export interface RampBill {
   id: string;
@@ -851,11 +860,46 @@ export interface RampBill {
   project_id: number | null;
   project_name: string | null;
   ramp_url: string | null;
+  source: string;
 }
+
+// Generic alias
+export type SpendingBill = RampBill;
 
 export interface RampBillsResponse {
   bills: RampBill[];
   total: number;
+}
+
+export type SpendingBillsResponse = RampBillsResponse;
+
+export interface SpendingEntry {
+  entry_id: string;
+  transaction_type: 'card' | 'bill' | 'po' | string;
+  direction: 'in' | 'out';
+  amount: number;
+  currency: string;
+  vendor_name: string | null;
+  category: string | null;
+  entry_date: string;
+  due_date: string | null;
+  person_name: string | null;
+  person_email: string | null;
+  memo: string | null;
+  status: string | null;
+  payment_status: string | null;
+  invoice_number: string | null;
+  project_id: number | null;
+  external_url: string | null;
+  source: string;
+}
+
+export interface SpendingEntriesResponse {
+  entries: SpendingEntry[];
+  total_count: number;
+  has_more: boolean;
+  total_amount_out: number;
+  total_amount_in: number;
 }
 
 export interface Project {

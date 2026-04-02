@@ -20,6 +20,7 @@ export interface PrioritizedItem {
 interface AllTabSearch {
   authorLabel?: string;     // e.g. "From", "User", "Edited by"
   hasDateFilter?: boolean;  // show from/to date inputs
+  extraFilters?: ReactNode; // custom filter controls rendered at the bottom of the filter panel
   onParamsChange: (params: { q?: string; author?: string; from_date?: string; to_date?: string }) => void;
 }
 
@@ -287,7 +288,7 @@ export function PrioritizedSourceList<T extends PrioritizedItem>({
                   }
                 }}
               />
-              {(allTab.search.authorLabel || allTab.search.hasDateFilter) && (
+              {(allTab.search.authorLabel || allTab.search.hasDateFilter || allTab.search.extraFilters) && (
                 <button
                   className={`day-filter-btn${showFilters ? ' day-filter-active' : ''}`}
                   onClick={() => setShowFilters(f => !f)}
@@ -337,6 +338,7 @@ export function PrioritizedSourceList<T extends PrioritizedItem>({
                   </label>
                 </>
               )}
+              {allTab.search.extraFilters}
             </div>
           )}
 

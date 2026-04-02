@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, type CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import {
   useBriefing,
@@ -13,6 +13,12 @@ import { cleanSlackText } from '../utils/cleanSlackText';
 import { useFocusNavigation } from '../hooks/useFocusNavigation';
 import { KeyboardHints } from '../components/shared/KeyboardHints';
 import type { PriorityItem, OvernightItem } from '../api/types';
+
+const GCAL_COLORS: Record<string, string> = {
+  '1': '#7986CB', '2': '#33B679', '3': '#8E24AA', '4': '#E67C73',
+  '5': '#F6BF26', '6': '#F4511E', '7': '#039BE5', '8': '#616161',
+  '9': '#3F51B5', '10': '#0B8043', '11': '#D50000',
+};
 
 const SOURCE_LABELS: Record<string, string> = {
   slack: 'Slack',
@@ -246,10 +252,12 @@ export function BriefingPage() {
                   const soon = isWithin30Min(event.start_time);
                   const now = isHappeningNow(event.start_time, event.end_time);
                   const oneOnOne = isOneOnOne(event.attendees_json);
+                  const eventColor = event.color_id ? GCAL_COLORS[event.color_id] : undefined;
                   return (
                     <div
                       key={event.id}
                       className={`briefing-timeline-item${now || soon ? ' briefing-timeline-soon' : ''}`}
+                      style={eventColor ? { '--event-color': eventColor } as CSSProperties : undefined}
                     >
                       <span className="briefing-timeline-time">
                         {event.all_day ? 'All day' : formatEventTime(event.start_time)}

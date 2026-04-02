@@ -209,6 +209,27 @@ register(
     )
 )
 
+# --- LunchMoney ---
+register(
+    ConnectorInfo(
+        id="lunchmoney",
+        name="LunchMoney",
+        description="Personal finance transactions via LunchMoney",
+        category="token",
+        secret_keys=["LUNCHMONEY_TOKEN"],
+        help_steps=[
+            "Go to my.lunchmoney.app/developers",
+            "Create a new Access Token (read-only is sufficient)",
+            "Copy the token",
+        ],
+        help_url="https://my.lunchmoney.app/developers",
+        sync_sources=["lunchmoney"],
+        default_enabled=False,
+        sync_fn="connectors.lunchmoney.sync_lunchmoney_transactions",
+        check_fn="routers.auth._check_lunchmoney",
+    )
+)
+
 # --- News ---
 register(
     ConnectorInfo(

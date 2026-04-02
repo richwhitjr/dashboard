@@ -47,6 +47,7 @@ def list_meetings(
                 SELECT
                     ce.id as event_id, ce.summary, ce.start_time, ce.end_time,
                     ce.all_day, ce.attendees_json, ce.html_link, ce.description,
+                    ce.color_id,
                     mne.id as notes_id, mne.provider as notes_provider,
                     mne.summary_html as notes_summary_html,
                     mne.summary_plain as notes_summary_plain,
@@ -83,6 +84,7 @@ def list_meetings(
                     SELECT
                         ce.id as event_id, ce.summary, ce.start_time, ce.end_time,
                         ce.all_day, ce.attendees_json, ce.html_link, ce.description,
+                        ce.color_id,
                         mne.id as notes_id, mne.provider as notes_provider,
                         mne.summary_html as notes_summary_html,
                         mne.summary_plain as notes_summary_plain,
@@ -109,6 +111,7 @@ def list_meetings(
                         mne.created_at as start_time, NULL as end_time,
                         0 as all_day, mne.attendees_json, NULL as html_link,
                         NULL as description,
+                        NULL as color_id,
                         mne.id as notes_id, mne.provider as notes_provider,
                         mne.summary_html as notes_summary_html,
                         mne.summary_plain as notes_summary_plain,

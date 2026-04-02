@@ -20,6 +20,7 @@ ALLOWED_SECRET_KEYS = frozenset(
         "GEMINI_API_KEY",
         "RAMP_CLIENT_ID",
         "RAMP_CLIENT_SECRET",
+        "LUNCHMONEY_TOKEN",
         "ANTHROPIC_API_KEY",
         "OPENAI_API_KEY",
         "GOOGLE_CLIENT_ID",

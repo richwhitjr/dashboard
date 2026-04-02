@@ -364,6 +364,22 @@ def sync_ramp_bills():
         _handle_sync_error("ramp_bills", e, time.monotonic() - t0)
 
 
+def sync_lunchmoney():
+    if not _is_enabled("lunchmoney"):
+        return
+    t0 = time.monotonic()
+    try:
+        from connectors.lunchmoney import sync_lunchmoney_transactions
+
+        from_date = _get_last_sync_date("lunchmoney")
+        count = sync_lunchmoney_transactions(from_date=from_date)
+        _update_sync_state("lunchmoney", "success", None, count, elapsed=time.monotonic() - t0)
+    except ImportError:
+        _update_sync_state("lunchmoney", "error", "LunchMoney connector not available", 0)
+    except Exception as e:
+        _handle_sync_error("lunchmoney", e, time.monotonic() - t0)
+
+
 def sync_news():
     if not _is_enabled("news"):
         return
@@ -534,6 +550,8 @@ def _run_full_sync():
             external.append(("github", sync_github))
         if _is_enabled("ramp"):
             external.extend([("ramp", sync_ramp), ("ramp_vendors", sync_ramp_vendors)])
+        if _is_enabled("lunchmoney"):
+            external.append(("lunchmoney", sync_lunchmoney))
         if _is_enabled("google_drive"):
             external.append(("drive", sync_drive))
         if _is_enabled("microsoft_drive"):
@@ -733,6 +751,7 @@ def trigger_source_sync(source: str, background_tasks: BackgroundTasks, org_only
         "news": sync_news,
         "ramp_vendors": sync_ramp_vendors,
         "ramp_bills": sync_ramp_bills,
+        "lunchmoney": sync_lunchmoney,
         "drive": sync_drive,
         "obsidian": sync_obsidian,
         "sheets": sync_sheets,
